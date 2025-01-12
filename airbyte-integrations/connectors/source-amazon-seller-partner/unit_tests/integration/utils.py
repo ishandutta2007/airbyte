@@ -7,13 +7,14 @@ import json
 from http import HTTPStatus
 from typing import Any, List, Mapping, Optional
 
+from source_amazon_seller_partner import SourceAmazonSellerPartner
+
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.test.catalog_builder import CatalogBuilder
 from airbyte_cdk.test.entrypoint_wrapper import EntrypointOutput, read
 from airbyte_cdk.test.mock_http import HttpMocker
 from airbyte_cdk.test.mock_http.response_builder import _get_unit_test_folder
 from airbyte_protocol.models import AirbyteStateMessage, ConfiguredAirbyteCatalog, Level, SyncMode
-from source_amazon_seller_partner import SourceAmazonSellerPartner
 
 from .config import ACCESS_TOKEN, ConfigBuilder
 from .request_builder import RequestBuilder
@@ -53,6 +54,7 @@ def get_stream_by_name(stream_name: str, config_: Mapping[str, Any]) -> Stream:
 
 def find_template(resource: str, execution_folder: str, template_format: Optional[str] = "csv") -> str:
     response_template_filepath = str(
+        # FIXME: the below function should be replaced with the public version after next CDK release
         _get_unit_test_folder(execution_folder) / "resource" / "http" / "response" / f"{resource}.{template_format}"
     )
     with open(response_template_filepath, "r") as template_file:
@@ -67,11 +69,7 @@ def mock_auth(http_mocker: HttpMocker) -> None:
     http_mocker.post(RequestBuilder.auth_endpoint().build(), build_response(response_body, status_code=HTTPStatus.OK))
 
 
-def assert_message_in_log_output(
-    message: str, entrypoint_output: EntrypointOutput, log_level: Optional[Level] = Level.WARN
-) -> None:
+def assert_message_in_log_output(message: str, entrypoint_output: EntrypointOutput, log_level: Optional[Level] = Level.WARN) -> None:
     assert any(
-        message in airbyte_message.log.message
-        for airbyte_message in entrypoint_output.logs
-        if airbyte_message.log.level == log_level
+        message in airbyte_message.log.message for airbyte_message in entrypoint_output.logs if airbyte_message.log.level == log_level
     )

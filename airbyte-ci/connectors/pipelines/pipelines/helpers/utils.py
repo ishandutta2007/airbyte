@@ -3,23 +3,26 @@
 #
 
 """This module groups util function used in pipelines."""
+
 from __future__ import annotations
 
 import contextlib
 import datetime
+import functools
 import os
 import re
 import sys
 import unicodedata
+import warnings
 import xml.sax.saxutils
 from io import TextIOWrapper
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import anyio
 import asyncclick as click
 import asyncer
-from dagger import Client, Config, Container, ExecError, File, ImageLayerCompression, Platform, Secret
+from dagger import Client, Config, Container, Directory, ExecError, File, ImageLayerCompression, Platform, Secret
+from exceptiongroup import ExceptionGroup
 from more_itertools import chunked
 
 if TYPE_CHECKING:
@@ -28,11 +31,11 @@ if TYPE_CHECKING:
     from pipelines.airbyte_ci.connectors.context import ConnectorContext
 
 DAGGER_CONFIG = Config(log_output=sys.stderr)
-AIRBYTE_REPO_URL = "https://github.com/airbytehq/airbyte.git"
 METADATA_FILE_NAME = "metadata.yaml"
+MANIFEST_FILE_NAME = "manifest.yaml"
 METADATA_ICON_FILE_NAME = "icon.svg"
 DIFF_FILTER = "MADRT"  # Modified, Added, Deleted, Renamed, Type changed
-IGNORED_FILE_EXTENSIONS = [".md"]
+IGNORED_FILE_EXTENSIONS: List[str] = []
 
 
 # This utils will probably be redundant once https://github.com/dagger/dagger/issues/3764 is implemented
@@ -46,7 +49,7 @@ async def check_path_in_workdir(container: Container, path: str) -> bool:
     Returns:
         bool: Whether the path exists in the container working directory.
     """
-    workdir = (await container.with_exec(["pwd"], skip_entrypoint=True).stdout()).strip()
+    workdir = (await container.with_exec(["pwd"]).stdout()).strip()
     mounts = await container.mounts()
     if workdir in mounts:
         expected_file_path = Path(workdir[1:]) / path
@@ -112,7 +115,7 @@ async def get_file_contents(container: Container, path: str) -> Optional[str]:
 def catch_exec_error_group() -> Generator:
     try:
         yield
-    except anyio.ExceptionGroup as eg:
+    except ExceptionGroup as eg:
         for e in eg.exceptions:
             if isinstance(e, ExecError):
                 raise e
@@ -353,3 +356,50 @@ def java_log_scrub_pattern(secrets_to_mask: List[str]) -> str:
             ":": "&#58;",
         },
     )
+
+
+def dagger_directory_as_zip_file(dagger_client: Client, directory: Directory, directory_name: str) -> File:
+    """Compress a directory and return a File object representing the zip file.
+
+    Args:
+        dagger_client (Client): The dagger client.
+        directory (Path): The directory to compress.
+        directory_name (str): The name of the directory.
+
+    Returns:
+        File: The File object representing the zip file.
+    """
+    return (
+        dagger_client.container()
+        .from_("alpine:3.19.1")
+        .with_exec(sh_dash_c(["apk update", "apk add zip"]))
+        .with_mounted_directory(f"/{directory_name}", directory)
+        .with_exec(["zip", "-r", "/zipped.zip", f"/{directory_name}"])
+        .file("/zipped.zip")
+    )
+
+
+async def raise_if_not_user(container: Container, expected_user: str) -> None:
+    """Raise an error if the container is not running as the specified user.
+
+    Args:
+        container (Container): The container to check.
+        expected_user (str): The expected user.
+    """
+    actual_user = (await container.with_exec(["whoami"]).stdout()).strip()
+
+    assert (
+        actual_user == expected_user
+    ), f"Container is not running as the expected user '{expected_user}', it is running as '{actual_user}'."
+
+
+def deprecated(reason: str) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            warnings.warn(f"{func.__name__} is deprecated: {reason}", DeprecationWarning, stacklevel=2)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

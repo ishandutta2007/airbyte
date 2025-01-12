@@ -8,8 +8,6 @@ from unittest.mock import patch
 import pendulum
 import pytest
 import requests
-from airbyte_cdk.models import SyncMode
-from airbyte_cdk.utils import AirbyteTracedException
 from source_amazon_seller_partner.streams import (
     IncrementalReportsAmazonSPStream,
     ReportProcessingStatus,
@@ -17,13 +15,17 @@ from source_amazon_seller_partner.streams import (
     VendorDirectFulfillmentShipping,
 )
 
+from airbyte_cdk.models import SyncMode
+from airbyte_cdk.utils import AirbyteTracedException
+from airbyte_protocol.models import FailureType
+
 
 class SomeReportStream(ReportsAmazonSPStream):
-    name = "GET_TEST_REPORT"
+    report_name = "GET_TEST_REPORT"
 
 
 class SomeIncrementalReportStream(IncrementalReportsAmazonSPStream):
-    name = "GET_TEST_INCREMENTAL_REPORT"
+    report_name = "GET_TEST_INCREMENTAL_REPORT"
     cursor_field = "dataEndTime"
 
 
@@ -84,6 +86,7 @@ class TestReportsAmazonSPStream:
     def test_stream_slices(self, report_init_kwargs, start_date, end_date, expected_slices):
         report_init_kwargs["replication_start_date"] = start_date
         report_init_kwargs["replication_end_date"] = end_date
+        report_init_kwargs["period_in_days"] = 365
 
         stream = SomeReportStream(**report_init_kwargs)
         with patch("pendulum.now", return_value=pendulum.parse("2023-01-01T00:00:00Z")):
@@ -100,7 +103,7 @@ class TestReportsAmazonSPStream:
     def test_get_updated_state(self, report_init_kwargs, current_stream_state, latest_record, expected_date):
         stream = SomeIncrementalReportStream(**report_init_kwargs)
         expected_state = {stream.cursor_field: expected_date}
-        assert stream.get_updated_state(current_stream_state, latest_record) == expected_state
+        assert stream._get_updated_state(current_stream_state, latest_record) == expected_state
 
     def test_read_records_retrieve_fatal(self, report_init_kwargs, mocker, requests_mock):
         mocker.patch("time.sleep", lambda x: None)
@@ -118,11 +121,12 @@ class TestReportsAmazonSPStream:
             status_code=201,
             json={"reportId": report_id},
         )
+        document_id = "some_document_id"
         requests_mock.register_uri(
             "GET",
             f"https://test.url/reports/2021-06-30/reports/{report_id}",
             status_code=200,
-            json={"processingStatus": ReportProcessingStatus.FATAL, "dataEndTime": "2022-10-03T00:00:00Z"},
+            json={"processingStatus": ReportProcessingStatus.FATAL, "dataEndTime": "2022-10-03T00:00:00Z", "reportDocumentId": document_id},
         )
 
         stream = SomeReportStream(**report_init_kwargs)
@@ -136,8 +140,9 @@ class TestReportsAmazonSPStream:
                 )
             )
         assert e.value.internal_message == (
-            f"Failed to retrieve the report 'GET_TEST_REPORT' for period {stream_start}-{stream_end} "
-            "due to Amazon Seller Partner platform issues. This will be read during the next sync."
+            f"Failed to retrieve the report 'GET_TEST_REPORT' for period {stream_start}-{stream_end}. "
+            "This will be read during the next sync. Report ID: some_report_id. Error: Failed to retrieve the report result document. "
+            "Visit https://docs.airbyte.com/integrations/sources/amazon-seller-partner#limitations--troubleshooting for more info."
         )
 
     def test_read_records_retrieve_cancelled(self, report_init_kwargs, mocker, requests_mock, caplog):
@@ -206,7 +211,7 @@ class TestReportsAmazonSPStream:
             records = list(stream.read_records(sync_mode=SyncMode.full_refresh))
         assert records[0] == {"some_key": "some_value", "dataEndTime": "2022-10-03"}
 
-    def test_read_records_retrieve_forbidden(self, report_init_kwargs, mocker, requests_mock, caplog):
+    def test_read_records_retrieve_forbidden(self, report_init_kwargs, mocker, requests_mock):
         mocker.patch("time.sleep", lambda x: None)
         requests_mock.register_uri(
             "POST",
@@ -225,12 +230,31 @@ class TestReportsAmazonSPStream:
         )
 
         stream = SomeReportStream(**report_init_kwargs)
-        assert list(stream.read_records(sync_mode=SyncMode.full_refresh)) == []
-        assert (
-            "The endpoint https://test.url/reports/2021-06-30/reports returned 403: Forbidden. "
-            "This is most likely due to insufficient permissions on the credentials in use. "
-            "Try to grant required permissions/scopes or re-authenticate."
-        ) in caplog.messages[-1]
+        with pytest.raises(AirbyteTracedException) as exception:
+            list(stream.read_records(sync_mode=SyncMode.full_refresh))
+        assert exception.value.failure_type == FailureType.config_error
+
+    def test_given_429_when_read_records_then_raise_transient_error(self, report_init_kwargs, mocker, requests_mock):
+        mocker.patch("time.sleep", lambda x: None)
+        requests_mock.register_uri(
+            "POST",
+            "https://api.amazon.com/auth/o2/token",
+            status_code=200,
+            json={"access_token": "access_token", "expires_in": "3600"},
+        )
+
+        requests_mock.register_uri(
+            "POST",
+            "https://test.url/reports/2021-06-30/reports",
+            status_code=429,
+            json={"errors": [{"code": "QuotaExceeded", "message": "You exceeded your quota for the requested resource.", "details": ""}]},
+            reason="Forbidden",
+        )
+
+        stream = SomeReportStream(**report_init_kwargs)
+        with pytest.raises(AirbyteTracedException) as exception:
+            list(stream.read_records(sync_mode=SyncMode.full_refresh))
+        assert exception.value.failure_type == FailureType.transient_error
 
 
 class TestVendorFulfillment:
@@ -268,15 +292,14 @@ class TestVendorFulfillment:
             ("2022-08-01T00:00:00Z", "2022-08-05T00:00:00Z", {"createdBefore": "2022-08-06T00:00:00Z"}, []),
         ),
     )
-    def test_stream_slices(self, report_init_kwargs, start_date, end_date, stream_state, expected_slices):
-        report_init_kwargs["replication_start_date"] = start_date
-        report_init_kwargs["replication_end_date"] = end_date
+    def test_stream_slices(self, init_kwargs, start_date, end_date, stream_state, expected_slices):
+        init_kwargs["replication_start_date"] = start_date
+        init_kwargs["replication_end_date"] = end_date
+        init_kwargs["period_in_days"] = 365
 
-        stream = VendorDirectFulfillmentShipping(**report_init_kwargs)
+        stream = VendorDirectFulfillmentShipping(**init_kwargs)
         with patch("pendulum.now", return_value=pendulum.parse("2022-09-05T00:00:00Z")):
-            assert list(
-                stream.stream_slices(sync_mode=SyncMode.full_refresh, stream_state=stream_state)
-            ) == expected_slices
+            assert list(stream.stream_slices(sync_mode=SyncMode.full_refresh, stream_state=stream_state)) == expected_slices
 
     @pytest.mark.parametrize(
         ("stream_slice", "next_page_token", "expected_params"),
@@ -297,10 +320,8 @@ class TestVendorFulfillment:
             ),
             (None, {"nextToken": "123123123"}, {"nextToken": "123123123"}),
             (None, None, {}),
-        )
+        ),
     )
-    def test_request_params(self, report_init_kwargs, stream_slice, next_page_token, expected_params):
-        stream = VendorDirectFulfillmentShipping(**report_init_kwargs)
-        assert stream.request_params(
-            stream_state={}, stream_slice=stream_slice, next_page_token=next_page_token
-        ) == expected_params
+    def test_request_params(self, init_kwargs, stream_slice, next_page_token, expected_params):
+        stream = VendorDirectFulfillmentShipping(**init_kwargs)
+        assert stream.request_params(stream_state={}, stream_slice=stream_slice, next_page_token=next_page_token) == expected_params

@@ -7,7 +7,8 @@ acceptance_tests:
     tests:
       - spec_path: "source_amplitude/spec.yaml"
         backward_compatibility_tests_config:
-          disable_for_version: 0.3.2 # `start_date` format changed to format: date-time
+          # added new `active_users_group_by_country` prop to toggle grouping by country
+          disable_for_version: 0.6.10
   connection:
     tests:
       - config_path: "secrets/config.json"
@@ -29,9 +30,7 @@ acceptance_tests:
             bypass_reason: "This stream is empty due to free subscription plan for the sandbox."
         expect_records:
           path: "integration_tests/expected_records.jsonl"
-          extra_fields: no
           exact_order: no
-          extra_records: yes
   incremental:
     tests:
       - config_path: "secrets/config.json"
@@ -39,6 +38,7 @@ acceptance_tests:
         future_state:
           future_state_path: "integration_tests/abnormal_state.json"
         timeout_seconds: 3600
+        skip_comprehensive_incremental_tests: yes
   full_refresh:
     tests:
       - config_path: "secrets/config.json"

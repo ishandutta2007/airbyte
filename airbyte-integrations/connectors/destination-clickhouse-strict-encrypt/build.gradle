@@ -4,8 +4,8 @@ plugins {
 }
 
 airbyteJavaConnector {
-    cdkVersionRequired = '0.2.0'
-    features = ['db-destinations']
+    cdkVersionRequired = '0.22.1'
+    features = ['db-destinations', 's3-destinations', 'typing-deduping']
     useLocalCdk = false
 }
 
@@ -29,8 +29,8 @@ dependencies {
     implementation 'com.clickhouse:clickhouse-jdbc:0.3.2-patch10:all'
 
     // https://mvnrepository.com/artifact/org.testcontainers/clickhouse
-    testImplementation libs.testcontainers.clickhouse
+    testImplementation 'org.testcontainers:clickhouse:1.19.0'
 
     // https://mvnrepository.com/artifact/org.testcontainers/clickhouse
-    integrationTestJavaImplementation libs.testcontainers.clickhouse
+    integrationTestJavaImplementation 'org.testcontainers:clickhouse:1.19.0'
 }

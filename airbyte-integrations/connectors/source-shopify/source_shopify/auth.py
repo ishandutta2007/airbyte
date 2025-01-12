@@ -25,7 +25,6 @@ class NotImplementedAuth(Exception):
 
 
 class ShopifyAuthenticator(TokenAuthenticator):
-
     """
     Making Authenticator to be able to accept Header-Based authentication.
     """
@@ -34,7 +33,6 @@ class ShopifyAuthenticator(TokenAuthenticator):
         self.config = config
 
     def get_auth_header(self) -> Mapping[str, Any]:
-
         auth_header: str = "X-Shopify-Access-Token"
         credentials: Dict = self.config.get("credentials", self.config.get("auth_method"))
         auth_method: str = credentials.get("auth_method")

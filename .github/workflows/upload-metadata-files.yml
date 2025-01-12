@@ -6,13 +6,13 @@ on:
 jobs:
   deploy-catalog-to-stage:
     name: "Upload Metadata Files to Metadata Service"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout Airbyte Cloud
         uses: actions/checkout@v2
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v35
+        uses: tj-actions/changed-files@v44
         with:
           files: "airbyte-integrations/connectors/**/metadata.yaml"
       - name: Setup Python 3.10

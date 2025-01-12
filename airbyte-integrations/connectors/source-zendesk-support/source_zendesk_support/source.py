@@ -5,52 +5,31 @@
 import base64
 import logging
 from datetime import datetime
-from typing import Any, List, Mapping, Tuple
+from typing import Any, List, Mapping, Optional, Tuple
 
 import pendulum
-from airbyte_cdk.models import SyncMode
-from airbyte_cdk.sources import AbstractSource
+
+from airbyte_cdk.models import ConfiguredAirbyteCatalog, SyncMode
+from airbyte_cdk.sources.declarative.yaml_declarative_source import YamlDeclarativeSource
+from airbyte_cdk.sources.source import TState
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.http.requests_native_auth import TokenAuthenticator
 from source_zendesk_support.streams import DATETIME_FORMAT, ZendeskConfigException
 
 from .streams import (
-    AccountAttributes,
     ArticleComments,
     ArticleCommentVotes,
     Articles,
     ArticleVotes,
-    AttributeDefinitions,
-    AuditLogs,
-    Brands,
-    CustomRoles,
-    GroupMemberships,
-    Groups,
-    Macros,
-    OrganizationFields,
-    OrganizationMemberships,
-    Organizations,
     PostComments,
     PostCommentVotes,
     Posts,
     PostVotes,
-    SatisfactionRatings,
-    Schedules,
-    SlaPolicies,
-    Tags,
-    TicketAudits,
-    TicketComments,
-    TicketFields,
-    TicketForms,
-    TicketMetricEvents,
     TicketMetrics,
     Tickets,
-    TicketSkips,
-    Topics,
-    UserFields,
-    Users,
     UserSettingsStream,
 )
+
 
 logger = logging.getLogger("airbyte")
 
@@ -65,10 +44,9 @@ class BasicApiTokenAuthenticator(TokenAuthenticator):
         super().__init__(token.decode("utf-8"), auth_method="Basic")
 
 
-class SourceZendeskSupport(AbstractSource):
-    """Source Zendesk Support fetch data from Zendesk CRM that builds customer
-    support and sales software which aims for quick implementation and adaptation at scale.
-    """
+class SourceZendeskSupport(YamlDeclarativeSource):
+    def __init__(self, catalog: Optional[ConfiguredAirbyteCatalog], config: Optional[Mapping[str, Any]], state: TState, **kwargs):
+        super().__init__(catalog=catalog, config=config, state=state, **{"path_to_yaml": "manifest.yaml"})
 
     @classmethod
     def get_default_start_date(cls) -> str:
@@ -87,11 +65,6 @@ class SourceZendeskSupport(AbstractSource):
 
     @classmethod
     def get_authenticator(cls, config: Mapping[str, Any]) -> [TokenAuthenticator, BasicApiTokenAuthenticator]:
-        # old authentication flow support
-        auth_old = config.get("auth_method")
-        if auth_old:
-            if auth_old.get("auth_method") == "api_token":
-                return BasicApiTokenAuthenticator(config["auth_method"]["email"], config["auth_method"]["api_token"])
         # new authentication flow
         auth = config.get("credentials")
         if auth:
@@ -112,8 +85,8 @@ class SourceZendeskSupport(AbstractSource):
         """
         auth = self.get_authenticator(config)
         try:
-            datetime.strptime(config["start_date"], DATETIME_FORMAT)
-            settings = UserSettingsStream(config["subdomain"], authenticator=auth, start_date=None).get_settings()
+            start_date = datetime.strptime(config["start_date"], DATETIME_FORMAT) if config["start_date"] else None
+            settings = UserSettingsStream(config["subdomain"], authenticator=auth, start_date=start_date).get_settings()
         except Exception as e:
             return False, e
         active_features = [k for k, v in settings.get("active_features", {}).items() if v]
@@ -137,56 +110,56 @@ class SourceZendeskSupport(AbstractSource):
             "ignore_pagination": config.get("ignore_pagination", False),
         }
 
-    def streams(self, config: Mapping[str, Any]) -> List[Stream]:
+    def get_nested_streams(self, config: Mapping[str, Any]) -> List[Stream]:
         """Returns relevant a list of available streams
         :param config: A Mapping of the user input configuration as defined in the connector spec.
         """
         args = self.convert_config2stream_args(config)
+
+        tickets = Tickets(**args)
+
         streams = [
             Articles(**args),
             ArticleComments(**args),
             ArticleCommentVotes(**args),
             ArticleVotes(**args),
-            AuditLogs(**args),
-            GroupMemberships(**args),
-            Groups(**args),
-            Macros(**args),
-            Organizations(**args),
-            OrganizationFields(**args),
-            OrganizationMemberships(**args),
             Posts(**args),
             PostComments(**args),
             PostCommentVotes(**args),
             PostVotes(**args),
-            SatisfactionRatings(**args),
-            SlaPolicies(**args),
-            Tags(**args),
-            TicketAudits(**args),
-            TicketComments(**args),
-            TicketFields(**args),
+            tickets,
             TicketMetrics(**args),
-            TicketMetricEvents(**args),
-            TicketSkips(**args),
-            Tickets(**args),
-            Topics(**args),
-            Users(**args),
-            Brands(**args),
-            CustomRoles(**args),
-            Schedules(**args),
-            UserFields(**args),
         ]
-        ticket_forms_stream = TicketForms(**args)
-        account_attributes = AccountAttributes(**args)
-        attribute_definitions = AttributeDefinitions(**args)
+        return streams
+
+    def check_enterprise_streams(self, declarative_streams: List[Stream]) -> List[Stream]:
+        """Returns relevant a list of available streams
+        :param config: A Mapping of the user input configuration as defined in the connector spec.
+        """
+        enterprise_stream_names = ["ticket_forms", "account_attributes", "attribute_definitions"]
+        enterprise_streams = [s for s in declarative_streams if s.name in enterprise_stream_names]
+
+        all_streams = [s for s in declarative_streams if s.name not in enterprise_stream_names]
+
         # TicketForms, AccountAttributes and AttributeDefinitions streams are only available for Enterprise Plan users,
         # but Zendesk API does not provide a public API to get user's subscription plan.
         # That's why we try to read at least one record from one of these streams and expose all of them in case of success
         # or skip them otherwise
         try:
+            ticket_forms_stream = next((s for s in enterprise_streams if s.name == "ticket_forms"))
             for stream_slice in ticket_forms_stream.stream_slices(sync_mode=SyncMode.full_refresh):
                 for _ in ticket_forms_stream.read_records(sync_mode=SyncMode.full_refresh, stream_slice=stream_slice):
-                    streams.extend([ticket_forms_stream, account_attributes, attribute_definitions])
                     break
+                all_streams.extend(enterprise_streams)
         except Exception as e:
             logger.warning(f"An exception occurred while trying to access TicketForms stream: {str(e)}. Skipping this stream.")
-        return streams
+        return all_streams
+
+    def streams(self, config: Mapping[str, Any]) -> List[Stream]:
+        declarative_streams = super().streams(config)
+
+        nested_streams = self.get_nested_streams(config)
+        declarative_streams.extend(nested_streams)
+
+        declarative_streams = self.check_enterprise_streams(declarative_streams)
+        return declarative_streams

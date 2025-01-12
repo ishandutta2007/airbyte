@@ -3,6 +3,7 @@
 #
 
 """This module groups util function used in pipelines."""
+
 from __future__ import annotations
 
 import sys
@@ -10,6 +11,7 @@ from pathlib import Path
 
 import asyncclick as click
 from dagger import DaggerError
+
 from pipelines import consts, main_logger
 from pipelines.consts import GCS_PUBLIC_DOMAIN, STATIC_REPORT_PREFIX
 from pipelines.helpers import sentry_utils
@@ -53,11 +55,13 @@ class DaggerPipelineCommand(click.Command):
             sys.exit(1)
         finally:
             if ctx.obj.get("dagger_logs_path"):
-                if ctx.obj["is_local"]:
-                    main_logger.info(f"Dagger logs saved to {ctx.obj['dagger_logs_path']}")
-                if ctx.obj["is_ci"]:
+                main_logger.info(f"Dagger logs saved to {ctx.obj['dagger_logs_path']}")
+                if ctx.obj["is_ci"] and ctx.obj["ci_gcp_credentials"] and ctx.obj["ci_report_bucket_name"]:
                     gcs_uri, public_url = upload_to_gcs(
-                        ctx.obj["dagger_logs_path"], ctx.obj["ci_report_bucket_name"], dagger_logs_gcs_key, ctx.obj["ci_gcs_credentials"]
+                        ctx.obj["dagger_logs_path"],
+                        ctx.obj["ci_report_bucket_name"],
+                        dagger_logs_gcs_key,
+                        ctx.obj["ci_gcp_credentials"].value,
                     )
                     main_logger.info(f"Dagger logs saved to {gcs_uri}. Public URL: {public_url}")
 

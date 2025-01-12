@@ -26,6 +26,9 @@
                             <includes>
                                 <include>**/*.java</include>
                             </includes>
+                            <excludes>
+                                <exclude>**/non_formatted_code/*</exclude>
+                            </excludes>
                             <importOrder />
                             <eclipse>
                                 <version>4.21</version>
@@ -44,6 +47,15 @@
                             <trimTrailingWhitespace />
                             <endWithNewline />
                         </groovy>
+                        <kotlin>
+                            <includes>
+                                <include>**/*.kt</include>
+                            </includes>
+                            <ktfmt>
+                                <version>0.39</version>
+                                <style>KOTLINLANG</style>
+                            </ktfmt>
+                        </kotlin>
                     </configuration>
                 </plugin>
             </plugins>

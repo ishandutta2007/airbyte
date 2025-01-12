@@ -6,6 +6,7 @@ from typing import List
 
 import asyncclick as click
 import dagger
+
 from pipelines import main_logger
 from pipelines.airbyte_ci.connectors.build_image.steps import run_connector_build_pipeline
 from pipelines.airbyte_ci.connectors.context import ConnectorContext
@@ -50,15 +51,17 @@ async def build(ctx: click.Context, use_host_gradle_dist_tar: bool, build_archit
             is_local=ctx.obj["is_local"],
             git_branch=ctx.obj["git_branch"],
             git_revision=ctx.obj["git_revision"],
+            diffed_branch=ctx.obj["diffed_branch"],
+            git_repo_url=ctx.obj["git_repo_url"],
             ci_report_bucket=ctx.obj["ci_report_bucket_name"],
             report_output_prefix=ctx.obj["report_output_prefix"],
-            use_remote_secrets=ctx.obj["use_remote_secrets"],
             gha_workflow_run_url=ctx.obj.get("gha_workflow_run_url"),
             dagger_logs_url=ctx.obj.get("dagger_logs_url"),
             pipeline_start_timestamp=ctx.obj.get("pipeline_start_timestamp"),
             ci_context=ctx.obj.get("ci_context"),
-            ci_gcs_credentials=ctx.obj["ci_gcs_credentials"],
+            ci_gcp_credentials=ctx.obj["ci_gcp_credentials"],
             use_local_cdk=ctx.obj.get("use_local_cdk"),
+            use_cdk_ref=ctx.obj.get("use_cdk_ref"),
             enable_report_auto_open=ctx.obj.get("enable_report_auto_open"),
             use_host_gradle_dist_tar=use_host_gradle_dist_tar,
             s3_build_cache_access_key_id=ctx.obj.get("s3_build_cache_access_key_id"),

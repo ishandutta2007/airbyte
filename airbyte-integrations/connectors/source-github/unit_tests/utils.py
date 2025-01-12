@@ -6,6 +6,7 @@ from typing import Any, MutableMapping
 from unittest import mock
 
 import responses
+
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.models.airbyte_protocol import ConnectorSpecification
 from airbyte_cdk.sources import Source
@@ -19,7 +20,7 @@ def read_incremental(stream_instance: Stream, stream_state: MutableMapping[str, 
     for slice in slices:
         records = stream_instance.read_records(sync_mode=SyncMode.incremental, stream_slice=slice, stream_state=stream_state)
         for record in records:
-            stream_state = stream_instance.get_updated_state(stream_state, record)
+            stream_state = stream_instance._get_updated_state(stream_state, record)
             res.append(record)
     return res
 

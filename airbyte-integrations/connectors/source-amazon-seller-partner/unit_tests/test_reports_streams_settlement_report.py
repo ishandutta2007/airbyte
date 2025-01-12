@@ -4,8 +4,10 @@
 
 
 import pytest
-from airbyte_cdk.models import SyncMode
 from source_amazon_seller_partner.streams import FlatFileSettlementV2Reports
+
+from airbyte_cdk.models import SyncMode
+
 
 START_DATE_1 = "2022-05-25T00:00:00Z"
 END_DATE_1 = "2022-05-26T00:00:00Z"
@@ -15,6 +17,7 @@ END_DATE_1 = "2022-05-26T00:00:00Z"
 def settlement_reports_stream():
     def _internal(start_date: str = START_DATE_1, end_date: str = END_DATE_1):
         stream = FlatFileSettlementV2Reports(
+            stream_name="FlatFileSettlementV2Reports",
             url_base="https://test.url",
             replication_start_date=start_date,
             replication_end_date=end_date,

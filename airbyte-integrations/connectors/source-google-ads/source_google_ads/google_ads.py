@@ -3,21 +3,35 @@
 #
 
 
-import logging
 from enum import Enum
-from typing import Any, Iterable, Iterator, List, Mapping, MutableMapping, Optional
+from typing import Any, Iterable, Iterator, List, Mapping, MutableMapping
 
 import backoff
-from airbyte_cdk.models import FailureType
-from airbyte_cdk.utils import AirbyteTracedException
 from google.ads.googleads.client import GoogleAdsClient
-from google.ads.googleads.v15.services.types.google_ads_service import GoogleAdsRow, SearchGoogleAdsResponse
+from google.ads.googleads.v17.services.types.google_ads_service import GoogleAdsRow, SearchGoogleAdsResponse
 from google.api_core.exceptions import InternalServerError, ServerError, TooManyRequests
 from google.auth import exceptions
+from google.protobuf import json_format
+from google.protobuf.message import Message
 from proto.marshal.collections import Repeated, RepeatedComposite
 
-API_VERSION = "v15"
-logger = logging.getLogger("airbyte")
+from airbyte_cdk.models import FailureType
+from airbyte_cdk.utils import AirbyteTracedException
+
+from .utils import logger
+
+
+API_VERSION = "v17"
+
+
+def on_give_up(details):
+    error = details["exception"]
+    if isinstance(error, InternalServerError):
+        raise AirbyteTracedException(
+            failure_type=FailureType.transient_error,
+            message=f"{error.message} {error.details}",
+            internal_message=f"{error.message} Unable to fetch data from Google Ads API due to temporal error on the Google Ads server. Please retry again later. ",
+        )
 
 
 class GoogleAds:
@@ -72,13 +86,18 @@ class GoogleAds:
         on_backoff=lambda details: logger.info(
             f"Caught retryable error after {details['tries']} tries. Waiting {details['wait']} seconds then retrying..."
         ),
+        on_giveup=on_give_up,
         max_tries=5,
     )
-    def send_request(self, query: str, customer_id: str, login_customer_id: str = "default") -> Iterator[SearchGoogleAdsResponse]:
+    def send_request(
+        self,
+        query: str,
+        customer_id: str,
+        login_customer_id: str = "default",
+    ) -> Iterator[SearchGoogleAdsResponse]:
         client = self.get_client(login_customer_id)
         search_request = client.get_type("SearchGoogleAdsRequest")
         search_request.query = query
-        search_request.page_size = self.DEFAULT_PAGE_SIZE
         search_request.customer_id = customer_id
         return [self.ga_service(login_customer_id).search(search_request)]
 
@@ -145,7 +164,24 @@ class GoogleAds:
         return query_template
 
     @staticmethod
-    def get_field_value(field_value: GoogleAdsRow, field: str, schema_type: Mapping[str, Any]) -> str:
+    def serialize_protobuf_message(message: Message) -> str:
+        """
+        This method tryies to serialize a given object into JSON if the given object is a protocol bugger message.
+        If not, the normal str() is applied. That helps keep the complex objects written as parsable structures.
+        """
+        try:
+            # The code is accessing "private" _pb value, because the message itself does not
+            # contain public PB attribute and for google ads message-based classes, like AdTextAd,
+            # that's apparently the only way to get the actual protobuf message that can be serialzied
+            # into json.
+            # type: ignore[union-attr]
+            return json_format.MessageToJson(message._pb, indent=0).replace("\n", "")
+        except AttributeError:
+            # This is a fallback for the cases when '_pb' attribute is not available.
+            return str(message)
+
+    @staticmethod
+    def get_field_value(field_value: GoogleAdsRow, field: str, schema_type: Mapping[str, Any]) -> str | list[str]:
         field_name = field.split(".")
         for level_attr in field_name:
             """
@@ -196,7 +232,7 @@ class GoogleAds:
             if isinstance(field_value, Enum):
                 field_value = field_value.name
             elif isinstance(field_value, (Repeated, RepeatedComposite)):
-                field_value = [str(value) for value in field_value]
+                field_value = [GoogleAds.serialize_protobuf_message(value) for value in field_value]
 
         # Google Ads has a lot of entities inside itself, and we cannot process them all separately, because:
         # 1. It will take a long time
@@ -214,18 +250,8 @@ class GoogleAds:
         return field_value
 
     @staticmethod
-    def parse_single_result(schema: Mapping[str, Any], result: GoogleAdsRow, nullable: Optional[List[str]] = None):
-        if nullable is None:
-            nullable = []
+    def parse_single_result(schema: Mapping[str, Any], result: GoogleAdsRow):
         props = schema.get("properties")
         fields = GoogleAds.get_fields_from_schema(schema)
-        # Making fields nullable is a temporary try to avoid `500 Internal server error` happen when
-        # `user_interest.availabilities` and `user_interest.launched_to_all` fields are queried while syncing `user_interest` stream.
-        # It seems like the values for the fields have changed following the 500 errors and it is unexpected,
-        # so until we understand the issue with the 500 errors, we will nullify those two fields.
-        # This should affect only the `user_interest` stream.
-        # TODO: we need to get rid of the nullable condition once the issue https://github.com/airbytehq/oncall/issues/4306 to be resolved.
-        single_record = {
-            field: GoogleAds.get_field_value(result, field, props.get(field)) if field not in nullable else None for field in fields
-        }
+        single_record = {field: GoogleAds.get_field_value(result, field, props.get(field)) for field in fields}
         return single_record

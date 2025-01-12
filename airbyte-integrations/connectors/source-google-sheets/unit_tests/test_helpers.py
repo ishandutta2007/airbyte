@@ -3,10 +3,14 @@
 #
 
 
+import logging
 import unittest
 from unittest.mock import Mock, patch
 
-from airbyte_cdk.logger import AirbyteLogger
+from source_google_sheets.client import GoogleSheetsClient
+from source_google_sheets.helpers import Helpers
+from source_google_sheets.models import CellData, GridData, RowData, Sheet, SheetProperties, Spreadsheet
+
 from airbyte_cdk.models.airbyte_protocol import (
     AirbyteRecordMessage,
     AirbyteStream,
@@ -15,11 +19,9 @@ from airbyte_cdk.models.airbyte_protocol import (
     DestinationSyncMode,
     SyncMode,
 )
-from source_google_sheets.client import GoogleSheetsClient
-from source_google_sheets.helpers import Helpers
-from source_google_sheets.models import CellData, GridData, RowData, Sheet, SheetProperties, Spreadsheet
 
-logger = AirbyteLogger()
+
+logger = logging.getLogger("airbyte")
 
 
 def google_sheet_client(row_data, spreadsheet_id, client):

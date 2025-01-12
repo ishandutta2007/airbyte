@@ -11,9 +11,11 @@ from unittest.mock import MagicMock, patch
 import pendulum
 import pytest
 import requests
-from airbyte_cdk.models import SyncMode
 from source_amplitude.components import ActiveUsersRecordExtractor, AverageSessionLengthRecordExtractor, EventsExtractor
 from source_amplitude.streams import Events
+
+from airbyte_cdk.models import SyncMode
+from airbyte_cdk.utils import AirbyteTracedException
 
 
 @pytest.mark.parametrize(
@@ -139,10 +141,10 @@ class TestEventsExtractor:
     @pytest.mark.parametrize(
         "error_code, expectation",
         [
-            (400, does_not_raise()),
-            (404, does_not_raise()),
-            (504, does_not_raise()),
-            (500, pytest.raises(requests.exceptions.HTTPError)),
+            (400, pytest.raises(AirbyteTracedException)),
+            (404, does_not_raise()),  # does not raise because response action is IGNORE
+            (504, pytest.raises(AirbyteTracedException)),
+            (500, does_not_raise()),  # does not raise because repsonse action is RETRY
         ],
     )
     def test_event_errors_read(self, mocker, requests_mock, error_code, expectation):
@@ -194,7 +196,6 @@ class TestEventsExtractor:
         assert len(parsed_response) == records_count
 
         if content_is_valid:
-
             # RFC3339 pattern
             pattern = r"^((?:(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2}(?:\.\d+)?))(Z|[\+-]\d{2}:\d{2})?)$"
 
@@ -267,6 +268,6 @@ class TestEventsExtractor:
 
         state = {"server_upload_time": "2023-01-01"}
         for record in cursor_fields_smaple:
-            state = stream.get_updated_state(state, record)
+            state = stream._get_updated_state(state, record)
 
         assert state["server_upload_time"] == "2023-08-31 00:00:00.000000"

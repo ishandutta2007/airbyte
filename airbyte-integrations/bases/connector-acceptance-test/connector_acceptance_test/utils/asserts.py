@@ -9,8 +9,10 @@ from collections import defaultdict
 from typing import Any, Dict, List, Mapping
 
 import pendulum
-from airbyte_protocol.models import AirbyteRecordMessage, ConfiguredAirbyteCatalog
 from jsonschema import Draft7Validator, FormatChecker, FormatError, ValidationError, validators
+
+from airbyte_protocol.models import AirbyteRecordMessage, ConfiguredAirbyteCatalog
+
 
 # fmt: off
 timestamp_regex = re.compile((r"^\d{4}-\d?\d-\d?\d"  # date
@@ -80,7 +82,7 @@ class CustomFormatChecker(FormatChecker):
 
 
 def verify_records_schema(
-    records: List[AirbyteRecordMessage], catalog: ConfiguredAirbyteCatalog, fail_on_extra_columns: bool
+    records: List[AirbyteRecordMessage], catalog: ConfiguredAirbyteCatalog
 ) -> Mapping[str, Mapping[str, ValidationError]]:
     """Check records against their schemas from the catalog, yield error messages.
     Only first record with error will be yielded for each stream.
@@ -88,7 +90,10 @@ def verify_records_schema(
     stream_validators = {}
     for stream in catalog.streams:
         schema_to_validate_against = stream.stream.json_schema
-        validator = NoAdditionalPropertiesValidator if fail_on_extra_columns else Draft7ValidatorWithStrictInteger
+        # We will be disabling strict `NoAdditionalPropertiesValidator` until we have a better plan for schema validation. The consequence
+        # is that we will lack visibility on new fields that are not added on the root level (root level is validated by Datadog)
+        #   validator = NoAdditionalPropertiesValidator if fail_on_extra_columns else Draft7ValidatorWithStrictInteger
+        validator = Draft7ValidatorWithStrictInteger
         stream_validators[stream.stream.name] = validator(schema_to_validate_against, format_checker=CustomFormatChecker())
     stream_errors = defaultdict(dict)
     for record in records:

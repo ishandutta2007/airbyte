@@ -4,11 +4,21 @@ import time
 
 import anyio
 import pytest
+from exceptiongroup import ExceptionGroup
+
 from pipelines.helpers.execution.run_steps import InvalidStepConfiguration, RunStepOptions, StepToRun, run_steps
 from pipelines.models.contexts.pipeline_context import PipelineContext
 from pipelines.models.steps import Step, StepResult, StepStatus
 
-test_context = PipelineContext(pipeline_name="test", is_local=True, git_branch="test", git_revision="test", report_output_prefix="test")
+test_context = PipelineContext(
+    pipeline_name="test",
+    is_local=True,
+    git_branch="test",
+    git_revision="test",
+    diffed_branch="test",
+    git_repo_url="test",
+    report_output_prefix="test",
+)
 
 
 class TestStep(Step):
@@ -299,7 +309,7 @@ async def test_run_steps_passes_results():
         StepToRun(
             id=CONNECTOR_TEST_STEP_ID.ACCEPTANCE,
             step=AcceptanceTests(context, True),
-            args=lambda results: {"connector_under_test_container": results[CONNECTOR_TEST_STEP_ID.BUILD].output_artifact[LOCAL_BUILD_PLATFORM]},
+            args=lambda results: {"connector_under_test_container": results[CONNECTOR_TEST_STEP_ID.BUILD].output[LOCAL_BUILD_PLATFORM]},
             depends_on=[CONNECTOR_TEST_STEP_ID.BUILD],
         ),
 
@@ -309,23 +319,23 @@ async def test_run_steps_passes_results():
         title = "Test Step"
 
         async def _run(self, arg1, arg2) -> StepResult:
-            output_artifact = f"{arg1}:{arg2}"
-            return StepResult(step=self, status=StepStatus.SUCCESS, output_artifact=output_artifact)
+            output = f"{arg1}:{arg2}"
+            return StepResult(step=self, status=StepStatus.SUCCESS, output=output)
 
     async def async_args(results):
-        return {"arg1": results["step2"].output_artifact, "arg2": "4"}
+        return {"arg1": results["step2"].output, "arg2": "4"}
 
     steps = [
         [StepToRun(id="step1", step=Simple(test_context), args={"arg1": "1", "arg2": "2"})],
-        [StepToRun(id="step2", step=Simple(test_context), args=lambda results: {"arg1": results["step1"].output_artifact, "arg2": "3"})],
+        [StepToRun(id="step2", step=Simple(test_context), args=lambda results: {"arg1": results["step1"].output, "arg2": "3"})],
         [StepToRun(id="step3", step=Simple(test_context), args=async_args)],
     ]
 
     results = await run_steps(steps)
 
-    assert results["step1"].output_artifact == "1:2"
-    assert results["step2"].output_artifact == "1:2:3"
-    assert results["step3"].output_artifact == "1:2:3:4"
+    assert results["step1"].output == "1:2"
+    assert results["step2"].output == "1:2:3"
+    assert results["step3"].output == "1:2:3:4"
 
 
 @pytest.mark.anyio
@@ -344,8 +354,11 @@ async def test_run_steps_throws_on_invalid_args(invalid_args):
         [StepToRun(id="step1", step=TestStep(test_context), args=invalid_args)],
     ]
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ExceptionGroup) as exc:
         await run_steps(steps)
+
+    assert len(exc.value.exceptions) == 1
+    assert isinstance(exc.value.exceptions[0], TypeError)
 
 
 @pytest.mark.anyio
@@ -353,8 +366,10 @@ async def test_run_steps_with_params():
     steps = [StepToRun(id="step1", step=TestStep(test_context))]
     options = RunStepOptions(fail_fast=True, step_params={"step1": {"--param1": ["value1"]}})
     TestStep.accept_extra_params = False
-    with pytest.raises(ValueError):
+    with pytest.raises(ExceptionGroup) as exc:
         await run_steps(steps, options=options)
+    assert len(exc.value.exceptions) == 1
+    assert isinstance(exc.value.exceptions[0], ValueError)
     assert steps[0].step.params_as_cli_options == []
     TestStep.accept_extra_params = True
     await run_steps(steps, options=options)
