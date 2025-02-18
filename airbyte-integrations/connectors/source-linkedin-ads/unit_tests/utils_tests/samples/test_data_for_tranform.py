@@ -2,7 +2,8 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 #
 
-""" This is the example of input record for the test_tranform_data. """
+"""This is the example of input record for the test_tranform_data."""
+
 input_test_data = [
     {
         "targetingCriteria": {
@@ -65,6 +66,7 @@ input_test_data = [
             }
         },
         "pivot": "TEST_PIVOT_VALUE",
+        "pivotValues": ["TEST_PIVOT_VALUE_1", "TEST_PIVOT_VALUE_2"],
     }
 ]
 
@@ -142,5 +144,7 @@ output_test_data = [
         "start_date": "2021-08-13",
         "end_date": "2021-08-13",
         "_pivot": "TEST_PIVOT_VALUE",
+        "string_of_pivot_values": "TEST_PIVOT_VALUE_1,TEST_PIVOT_VALUE_2",
+        "pivotValues": ["TEST_PIVOT_VALUE_1", "TEST_PIVOT_VALUE_2"],
     }
 ]

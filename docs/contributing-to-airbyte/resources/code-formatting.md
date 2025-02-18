@@ -3,36 +3,44 @@
 ## Tools
 
 ### 🐍 Python
-We format our Python code using:
-* [Black](https://github.com/psf/black) for code formatting
-* [isort](https://pycqa.github.io/isort/) for import sorting
 
-Our configuration for both tools is in the [pyproject.toml](https://github.com/airbytehq/airbyte/blob/master/pyproject.toml) file.
+We use [Ruff](https://docs.astral.sh) for Python code formatting and import sorting. Our Ruff configuration is in the [pyproject.toml](https://github.com/airbytehq/airbyte/blob/master/pyproject.toml) file.
+
+Ruff is monorepo-friendly and supports nested inherited configuration; each sub-project can optionally override Ruff lint and formatting settings in their own `pyproject.toml` files, as needed per project.
+
+Ruff [auto-detects the proper package classification](https://docs.astral.sh/ruff/faq/#how-does-ruff-determine-which-of-my-imports-are-first-party-third-party-etc) so that "local", "first party" and "third party" imports are sorted and grouped correctly, even within subprojects of the monorepo.
 
 ### ☕ Java
+
 We format our Java code using [Spotless](https://github.com/diffplug/spotless).
 Our configuration for Spotless is in the [spotless-maven-pom.xml](https://github.com/airbytehq/airbyte/blob/master/spotless-maven-pom.xml) file.
 
 ### Json and Yaml
+
 We format our Json and Yaml files using [prettier](https://prettier.io/).
 
-## Pre-push hooks and CI
-We wrapped all our code formatting tools in [airbyte-ci](https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/pipelines/README.md).
+### Local Formatting
 
-### Local formatting
-You can run `airbyte-ci format fix all` to format all the code in the repository.
-We wrapped this command in a pre-push hook so that you can't push code that is not formatted.
 
-To install the pre-push hook,  run:
+We wrapped our code formatting tools in [pre-commit](https://pre-commit.com). You can install this and other local dev tools by running `make tools.install`.
+
+You can execute `pre-commit` to format modified files, or `pre-commit run --all-files` to format all the code your local `airbyte` repository.
+
+## Pre-push Git Hooks
+
+A pre-push git hook is available, which you can enable with:
+
 ```bash
-make tools.pre-commit.setup
+make tools.git-hooks.install
 ```
-This will install `airbyte-ci` and the pre-push hook.
 
-The pre-push hook runs formatting on all the repo files.
-If the hook attempts to format a file that is not part of your contribution, it means that formatting is also broken in the master branch. Please open a separate PR to fix the formatting in the master branch.
+You can also uninstall git hooks with:
 
-### CI checks
-In the CI we run the `airbyte-ci format check all` command to check that all the code is formatted.
-If it is not, the CI will fail and you will have to run `airbyte-ci format fix all` locally to fix the formatting issues.
-Failure on the CI is not expected if you installed the pre-push hook.
+```bash
+make tools.git-hooks.clean
+```
+
+### CI Checks and `/format-fix` Slash Command
+
+In the CI we run the `pre-commit run --all-files` command to check that all the code is formatted.
+If it is not, CI will fail and you will have to run `pre-commit run --all-files` locally to fix the formatting issues. Alternatively, maintainers with write permissions can run the `/format-fix` GitHub slash command to auto-format the entire repo and commit the result back to the open PR.

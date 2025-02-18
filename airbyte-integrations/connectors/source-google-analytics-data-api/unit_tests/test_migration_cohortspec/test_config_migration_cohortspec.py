@@ -8,10 +8,12 @@ import os
 from typing import Any, Mapping
 
 import dpath.util
-from airbyte_cdk.models import OrchestratorType, Type
-from airbyte_cdk.sources import Source
 from source_google_analytics_data_api.config_migrations import MigrateCustomReportsCohortSpec
 from source_google_analytics_data_api.source import SourceGoogleAnalyticsDataApi
+
+from airbyte_cdk.models import OrchestratorType, Type
+from airbyte_cdk.sources import Source
+
 
 # BASE ARGS
 CMD = "check"
@@ -32,7 +34,8 @@ def test_migrate_config(capsys):
     # migrate the test_config
     migration_instance.migrate(SOURCE_INPUT_ARGS, SOURCE)
 
-    control_msg = json.loads(capsys.readouterr().out)
+    what = capsys.readouterr().out
+    control_msg = json.loads(what)
     assert control_msg["type"] == Type.CONTROL.value
     assert control_msg["control"]["type"] == OrchestratorType.CONNECTOR_CONFIG.value
 

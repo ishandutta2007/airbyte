@@ -3,13 +3,15 @@
 #
 
 
+import logging
 from pathlib import Path
 
 import pytest
-from airbyte_cdk import AirbyteLogger
-from airbyte_cdk.utils import AirbyteTracedException
 from source_file import SourceFile
 from source_file.client import Client
+
+from airbyte_cdk.utils import AirbyteTracedException
+
 
 SAMPLE_DIRECTORY = Path(__file__).resolve().parent.joinpath("sample_files/formats")
 
@@ -66,7 +68,7 @@ def test_raises_file_wrong_format(file_format, extension, wrong_format, filename
 
 
 def run_load_dataframes(config, expected_columns=10, expected_rows=42):
-    df_list = SourceFile.load_dataframes(config=config, logger=AirbyteLogger(), skip_data=False)
+    df_list = SourceFile.load_dataframes(config=config, logger=logging.getLogger("airbyte"), skip_data=False)
     assert len(df_list) == 1  # Properly load 1 DataFrame
     df = df_list[0]
     assert len(df.columns) == expected_columns  # DataFrame should have 10 columns
@@ -75,7 +77,7 @@ def run_load_dataframes(config, expected_columns=10, expected_rows=42):
 
 
 def run_load_nested_json_schema(config, expected_columns=10, expected_rows=42):
-    data_list = SourceFile.load_nested_json(config, logger=AirbyteLogger())
+    data_list = SourceFile.load_nested_json(config, logger=logging.getLogger("airbyte"))
     assert len(data_list) == 1  # Properly load data
     df = data_list[0]
     assert len(df) == expected_rows  # DataFrame should have 42 items

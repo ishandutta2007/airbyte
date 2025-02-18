@@ -12,7 +12,8 @@ import sys
 from typing import TYPE_CHECKING
 
 import asyncclick as click
-import requests  # type: ignore
+import requests
+
 from pipelines import main_logger
 from pipelines.cli.confirm_prompt import confirm
 from pipelines.consts import LOCAL_PIPELINE_PACKAGE_PATH
@@ -31,7 +32,11 @@ AUTO_UPDATE_AGREE_KEY = "yes_auto_update"
 def pre_confirm_auto_update_flag(f: Callable) -> Callable:
     """Decorator to add a --yes-auto-update flag to a command."""
     return click.option(
-        "--yes-auto-update", AUTO_UPDATE_AGREE_KEY, is_flag=True, default=False, help="Skip prompts and automatically upgrade pipelines"
+        "--yes-auto-update/--no-auto-update",
+        AUTO_UPDATE_AGREE_KEY,
+        is_flag=True,
+        default=True,
+        help="Skip prompts and automatically upgrade pipelines",
     )(f)
 
 
@@ -79,7 +84,7 @@ def check_for_upgrade(
     """Check if the installed version of pipelines is up to date."""
     current_command = " ".join(sys.argv)
     latest_version = _get_latest_version()
-    is_out_of_date = latest_version != __installed_version__
+    is_out_of_date = latest_version > __installed_version__
     if not is_out_of_date:
         main_logger.info(f"airbyte-ci is up to date. Installed version: {__installed_version__}. Latest version: {latest_version}")
         return

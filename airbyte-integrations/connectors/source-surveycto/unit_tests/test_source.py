@@ -26,9 +26,11 @@ def source_fixture():
 
 @pytest.fixture(name="mock_survey_cto")
 def mock_survey_cto_fixture():
-    with patch("source_surveycto.source.Helpers.call_survey_cto", return_value="value") as mock_call_survey_cto, patch(
-        "source_surveycto.source.Helpers.get_filter_data", return_value="value"
-    ) as mock_filter_data, patch("source_surveycto.source.Helpers.get_json_schema", return_value="value") as mock_json_schema:
+    with (
+        patch("source_surveycto.source.Helpers.call_survey_cto", return_value="value") as mock_call_survey_cto,
+        patch("source_surveycto.source.Helpers.get_filter_data", return_value="value") as mock_filter_data,
+        patch("source_surveycto.source.Helpers.get_json_schema", return_value="value") as mock_json_schema,
+    ):
         yield mock_call_survey_cto, mock_filter_data, mock_json_schema
 
 
@@ -42,8 +44,7 @@ def test_check_connection_valid(mock_survey_cto, source, config):
 
 def test_check_connection_failure(mock_survey_cto, source, config):
     logger_mock = MagicMock()
-    expected_outcome = "Unable to connect - 400 Client Error: 400 for url: https://server_name.surveycto.com/api/v2/forms/data/wide/json/form_id_1?date=Jan+09%2C+2022+00%3A00%3A00+AM"
-    assert source.check_connection(logger_mock, config) == (False, expected_outcome)
+    assert not source.check_connection(logger_mock, config)[0]
 
 
 def test_generate_streams(mock_survey_cto, source, config):

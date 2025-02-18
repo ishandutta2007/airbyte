@@ -63,9 +63,43 @@ MailGun's [API reference](https://documentation.mailgun.com/en/latest/api_refere
 
 ## Changelog
 
-| Version | Date       | Pull Request                                             | Subject                                              |
-| :------ | :--------- | :------------------------------------------------------  | :--------------------------------------------------- |
-| 0.2.1   | 2023-10-16 | [31405](https://github.com/airbytehq/airbyte/pull/31405) | Fixed test connection failure if date field is empty |
-| 0.2.0   | 2023-08-05 | [29122](https://github.com/airbytehq/airbyte/pull/29122) | Migrate to Low Code                                  |
-| 0.1.1   | 2023-02-13 | [22939](https://github.com/airbytehq/airbyte/pull/22939) | Specified date formatting in specification           |
-| 0.1.0   | 2021-11-09 | [8056](https://github.com/airbytehq/airbyte/pull/8056)   | New Source: Mailgun                                  |
+<details>
+  <summary>Expand to review</summary>
+
+| Version | Date       | Pull Request                                             | Subject                                                                         |
+| :------ |:-----------| :------------------------------------------------------- |:--------------------------------------------------------------------------------|
+| 0.3.11 | 2025-02-15 | [53823](https://github.com/airbytehq/airbyte/pull/53823) | Update dependencies |
+| 0.3.10 | 2025-02-08 | [53258](https://github.com/airbytehq/airbyte/pull/53258) | Update dependencies |
+| 0.3.9 | 2025-02-01 | [52786](https://github.com/airbytehq/airbyte/pull/52786) | Update dependencies |
+| 0.3.8 | 2025-01-25 | [52284](https://github.com/airbytehq/airbyte/pull/52284) | Update dependencies |
+| 0.3.7 | 2025-01-18 | [51815](https://github.com/airbytehq/airbyte/pull/51815) | Update dependencies |
+| 0.3.6 | 2025-01-11 | [51144](https://github.com/airbytehq/airbyte/pull/51144) | Update dependencies |
+| 0.3.5 | 2024-12-28 | [50592](https://github.com/airbytehq/airbyte/pull/50592) | Update dependencies |
+| 0.3.4 | 2024-12-21 | [50128](https://github.com/airbytehq/airbyte/pull/50128) | Update dependencies |
+| 0.3.3 | 2024-12-14 | [49613](https://github.com/airbytehq/airbyte/pull/49613) | Update dependencies |
+| 0.3.2 | 2024-12-12 | [47680](https://github.com/airbytehq/airbyte/pull/47680) | Update dependencies |
+| 0.3.1 | 2024-08-16 | [44196](https://github.com/airbytehq/airbyte/pull/44196) | Bump source-declarative-manifest version |
+| 0.3.0 | 2024-08-15 | [44130](https://github.com/airbytehq/airbyte/pull/44130) | Refactor connector to manifest-only format |
+| 0.2.18 | 2024-08-12 | [43923](https://github.com/airbytehq/airbyte/pull/43923) | Update dependencies |
+| 0.2.17 | 2024-08-10 | [43501](https://github.com/airbytehq/airbyte/pull/43501) | Update dependencies |
+| 0.2.16 | 2024-08-03 | [43098](https://github.com/airbytehq/airbyte/pull/43098) | Update dependencies |
+| 0.2.15 | 2024-07-27 | [42716](https://github.com/airbytehq/airbyte/pull/42716) | Update dependencies |
+| 0.2.14 | 2024-07-20 | [42241](https://github.com/airbytehq/airbyte/pull/42241) | Update dependencies |
+| 0.2.13 | 2024-07-13 | [41890](https://github.com/airbytehq/airbyte/pull/41890) | Update dependencies |
+| 0.2.12 | 2024-07-10 | [41582](https://github.com/airbytehq/airbyte/pull/41582) | Update dependencies |
+| 0.2.11 | 2024-07-06 | [40790](https://github.com/airbytehq/airbyte/pull/40790) | Update dependencies |
+| 0.2.10 | 2024-06-25 | [40491](https://github.com/airbytehq/airbyte/pull/40491) | Update dependencies |
+| 0.2.9 | 2024-06-22 | [40106](https://github.com/airbytehq/airbyte/pull/40106) | Update dependencies |
+| 0.2.8 | 2024-06-06 | [39229](https://github.com/airbytehq/airbyte/pull/39229) | [autopull] Upgrade base image to v1.2.2 |
+| 0.2.7 | 2024-05-28 | [38176](https://github.com/airbytehq/airbyte/pull/38176) | Make connector compatible with Builder |
+| 0.2.6 | 2024-05-02 | [37594](https://github.com/airbytehq/airbyte/pull/37594) | Change `last_recrods` to `last_record` |
+| 0.2.5 | 2024-04-19 | [37193](https://github.com/airbytehq/airbyte/pull/37193) | Updating to 0.80.0 CDK |
+| 0.2.4 | 2024-04-18 | [37193](https://github.com/airbytehq/airbyte/pull/37193) | Manage dependencies with Poetry. |
+| 0.2.3 | 2024-04-15 | [37193](https://github.com/airbytehq/airbyte/pull/37193) | Base image migration: remove Dockerfile and use the python-connector-base image |
+| 0.2.2 | 2024-04-12 | [37193](https://github.com/airbytehq/airbyte/pull/37193) | schema descriptions |
+| 0.2.1 | 2023-10-16 | [31405](https://github.com/airbytehq/airbyte/pull/31405) | Fixed test connection failure if date field is empty |
+| 0.2.0 | 2023-08-05 | [29122](https://github.com/airbytehq/airbyte/pull/29122) | Migrate to Low Code |
+| 0.1.1 | 2023-02-13 | [22939](https://github.com/airbytehq/airbyte/pull/22939) | Specified date formatting in specification |
+| 0.1.0 | 2021-11-09 | [8056](https://github.com/airbytehq/airbyte/pull/8056) | New Source: Mailgun |
+
+</details>

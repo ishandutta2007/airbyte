@@ -1,14 +1,43 @@
 #
-# Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+# Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 #
-
 import json
 import operator
+import os
 from pathlib import Path
 
 import pytest
+import yaml
+
 from airbyte_cdk.models import SyncMode
-from source_amplitude.source import SourceAmplitude
+from airbyte_cdk.sources.declarative.types import StreamSlice
+from airbyte_cdk.sources.declarative.yaml_declarative_source import YamlDeclarativeSource
+from airbyte_cdk.test.catalog_builder import CatalogBuilder
+
+
+class SourceAmplitudeTest(YamlDeclarativeSource):
+    def __init__(self):
+        with open("../manifest.yaml", "r") as yaml_file:
+            primary_manifest = yaml.safe_load(yaml_file)
+
+        test_manifest = primary_manifest
+
+        stream_list = []
+
+        # We are only testing the annotations and cohorts streams
+        for stream in primary_manifest["streams"]:
+            if stream["name"] in ["annotations", "cohorts"]:
+                stream_list.append(stream)
+
+        test_manifest["streams"] = stream_list
+
+        with open("test_manifest.yaml", "w") as test_yaml:
+            yaml.dump(test_manifest, test_yaml)
+
+        super().__init__("test_manifest.yaml")
+
+        if os.path.exists("test_manifest.yaml"):
+            os.remove("test_manifest.yaml")
 
 
 @pytest.fixture(scope="module")
@@ -19,7 +48,13 @@ def config():
 
 @pytest.fixture(scope="module")
 def streams(config):
-    return SourceAmplitude().streams(config=config)
+    catalog = (
+        CatalogBuilder()
+        .with_stream("annotations_stream", sync_mode=SyncMode.full_refresh)
+        .with_stream("cohorts_stream", sync_mode=SyncMode.full_refresh)
+        .build()
+    )
+    return SourceAmplitudeTest().streams(config=config)
 
 
 @pytest.fixture(scope="module")
@@ -85,7 +120,8 @@ def test_empty_streams(stream_fixture_name, url, expected_records, request, requ
     due to free subscription plan for the sandbox
     """
     stream = request.getfixturevalue(stream_fixture_name)
-    records_reader = stream.read_records(sync_mode=SyncMode.full_refresh, cursor_field=None, stream_slice={})
+    empty_stream_slice = StreamSlice(partition={}, cursor_slice={})
+    records_reader = stream.read_records(sync_mode=SyncMode.full_refresh, cursor_field=None, stream_slice=empty_stream_slice)
     requests_mock.get(url, status_code=200, json={"data": expected_records})
 
     # Sort actual and expected records by ID.

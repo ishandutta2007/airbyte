@@ -10,6 +10,7 @@ from typing import Dict
 
 import pendulum
 
+
 ACCESS_TOKEN = "test_access_token"
 LWA_APP_ID = "amazon_app_id"
 LWA_CLIENT_SECRET = "amazon_client_secret"
@@ -18,7 +19,7 @@ REFRESH_TOKEN = "amazon_refresh_token"
 
 CONFIG_START_DATE = "2023-01-01T00:00:00Z"
 CONFIG_END_DATE = "2023-01-30T00:00:00Z"
-NOW = pendulum.now(tz="utc")
+NOW = pendulum.datetime(year=2024, month=6, day=1)
 TIME_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 

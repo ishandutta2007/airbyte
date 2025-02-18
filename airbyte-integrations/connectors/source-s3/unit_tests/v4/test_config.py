@@ -6,8 +6,9 @@
 import logging
 
 import pytest
-from pydantic import ValidationError
+from pydantic.v1.error_wrappers import ValidationError
 from source_s3.v4.config import Config
+
 
 logger = logging.Logger("")
 

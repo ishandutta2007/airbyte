@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import MutableMapping, Union
 
 import pytest
-from airbyte_protocol.models import AirbyteStream, ConnectorSpecification
 from connector_acceptance_test.tests.test_core import TestDiscovery as _TestDiscovery
 from connector_acceptance_test.tests.test_core import TestSpec as _TestSpec
 from connector_acceptance_test.utils.backward_compatibility import NonBackwardCompatibleError, validate_previous_configs
+
+from airbyte_protocol.models import AirbyteStream, ConnectorSpecification
 
 from .conftest import does_not_raise
 
@@ -1593,6 +1594,28 @@ VALID_CATALOG_TRANSITIONS = [
                     "name": "test_stream",
                     "supported_sync_modes": ["full_refresh"],
                     "json_schema": {"properties": {"user": {"type": "object", "properties": {"username": {"type": ["string", "null"]}}}}},
+                }
+            )
+        },
+    ),
+    Transition(
+        name="Given the same types, the order does not matter",
+        should_fail=False,
+        previous={
+            "test_stream": AirbyteStream.parse_obj(
+                {
+                    "name": "test_stream",
+                    "json_schema": {"properties": {"user": {"type": "object", "properties": {"username": {"type": ["null", "string"]}}}}},
+                    "supported_sync_modes": ["full_refresh"],
+                }
+            )
+        },
+        current={
+            "test_stream": AirbyteStream.parse_obj(
+                {
+                    "name": "test_stream",
+                    "json_schema": {"properties": {"user": {"type": "object", "properties": {"username": {"type": ["string", "null"]}}}}},
+                    "supported_sync_modes": ["full_refresh"],
                 }
             )
         },

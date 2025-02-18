@@ -4,17 +4,18 @@
 
 
 import json
+import logging
 from datetime import datetime
 from logging import getLogger
 from typing import Any, Iterable, Mapping
 from uuid import uuid4
 
-from airbyte_cdk import AirbyteLogger
 from airbyte_cdk.destinations import Destination
 from airbyte_cdk.models import AirbyteConnectionStatus, AirbyteMessage, ConfiguredAirbyteCatalog, DestinationSyncMode, Status, Type
 from destination_databend.client import DatabendClient
 
 from .writer import create_databend_wirter
+
 
 logger = getLogger("airbyte")
 
@@ -23,7 +24,6 @@ class DestinationDatabend(Destination):
     def write(
         self, config: Mapping[str, Any], configured_catalog: ConfiguredAirbyteCatalog, input_messages: Iterable[AirbyteMessage]
     ) -> Iterable[AirbyteMessage]:
-
         """
         TODO
         Reads the input stream of messages, config, and catalog to write data to the destination.
@@ -65,7 +65,7 @@ class DestinationDatabend(Destination):
         # Flush any leftover messages
         writer.flush()
 
-    def check(self, logger: AirbyteLogger, config: Mapping[str, Any]) -> AirbyteConnectionStatus:
+    def check(self, logger: logging.Logger, config: Mapping[str, Any]) -> AirbyteConnectionStatus:
         """
         Tests if the input configuration can be used to successfully connect to the destination with the needed permissions
             e.g: if a provided API token or password can be used to connect and write to the destination.

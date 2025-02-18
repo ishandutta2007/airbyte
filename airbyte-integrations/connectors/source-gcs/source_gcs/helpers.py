@@ -2,18 +2,27 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 #
 
-import io
+
 import json
 
-import pandas as pd
 from google.cloud import storage
-from google.cloud.storage.blob import Blob
-from google.oauth2 import service_account
+from google.oauth2 import credentials, service_account
+
+from airbyte_cdk.sources.file_based.remote_file import RemoteFile
 
 
 def get_gcs_client(config):
-    credentials = service_account.Credentials.from_service_account_info(json.loads(config.service_account))
-    client = storage.Client(credentials=credentials)
+    if config.credentials.auth_type == "Service":
+        creds = service_account.Credentials.from_service_account_info(json.loads(config.credentials.service_account))
+    else:
+        creds = credentials.Credentials(
+            config.credentials.access_token,
+            refresh_token=config.credentials.refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=config.credentials.client_id,
+            client_secret=config.credentials.client_secret,
+        )
+    client = storage.Client(credentials=creds)
     return client
 
 
@@ -26,30 +35,6 @@ def get_gcs_blobs(config):
     return blobs
 
 
-def read_csv_file(blob: Blob, read_header_only=False):
-    file_obj = io.BytesIO()
-    blob.download_to_file(file_obj)
-    file_obj.seek(0)
-    if read_header_only:
-        df = pd.read_csv(file_obj, nrows=0)
-    else:
-        df = pd.read_csv(file_obj)
-    file_obj.close()
-    return df
-
-
-def construct_file_schema(df):
-    # Fix all columns to string for maximum compability
-
-    # Create a JSON schema object from the column data types
-    schema = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": {col: {"type": "string"} for col in df.columns},
-    }
-    return schema
-
-
 def get_stream_name(blob):
     blob_name = blob.name
     # Remove path from stream name
@@ -57,3 +42,12 @@ def get_stream_name(blob):
     # Remove file extension from stream name
     stream_name = blob_name_without_path.replace(".csv", "")
     return stream_name
+
+
+class GCSRemoteFile(RemoteFile):
+    """
+    Extends RemoteFile instance with displayed_uri attribute.
+    displayed_uri is being used by Cursor to identify files with temporal local path in their uri attribute.
+    """
+
+    displayed_uri: str = None

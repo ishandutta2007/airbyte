@@ -57,5 +57,10 @@ def customers(config):
 
 
 @pytest.fixture
+def additional_customers(config, customers):
+    return customers + [CustomerModel(id="789", time_zone="local", is_manager_account=False)]
+
+
+@pytest.fixture
 def customers_manager(config):
     return [CustomerModel(id=_id, time_zone="local", is_manager_account=True) for _id in config["customer_id"].split(",")]

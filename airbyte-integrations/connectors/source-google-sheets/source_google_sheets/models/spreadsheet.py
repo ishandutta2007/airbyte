@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+# Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 #
 
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, Extra
+from pydantic.v1 import BaseModel, Extra
 
 
 class SpreadsheetProperties(BaseModel):

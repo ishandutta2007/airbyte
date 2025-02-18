@@ -7,6 +7,11 @@ from copy import deepcopy
 from unittest.mock import call
 
 import pytest
+from facebook_business import FacebookAdsApi, FacebookSession
+from source_facebook_marketing import SourceFacebookMarketing
+from source_facebook_marketing.spec import ConnectorConfig
+
+from airbyte_cdk import AirbyteTracedException
 from airbyte_cdk.models import (
     AirbyteConnectionStatus,
     AirbyteStream,
@@ -17,9 +22,6 @@ from airbyte_cdk.models import (
     Status,
     SyncMode,
 )
-from facebook_business import FacebookAdsApi, FacebookSession
-from source_facebook_marketing import SourceFacebookMarketing
-from source_facebook_marketing.spec import ConnectorConfig
 
 from .utils import command_check
 
@@ -28,12 +30,24 @@ from .utils import command_check
 def config_fixture(requests_mock):
     config = {
         "account_ids": ["123"],
-        "access_token": "TOKEN",
+        "access_token": "ACCESS_TOKEN",
+        "credentials": {
+            "auth_type": "Service",
+            "access_token": "ACCESS_TOKEN",
+        },
         "start_date": "2019-10-10T00:00:00Z",
         "end_date": "2020-10-10T00:00:00Z",
     }
-    requests_mock.register_uri("GET", FacebookSession.GRAPH + f"/{FacebookAdsApi.API_VERSION}/me/business_users", json={"data": []})
-    requests_mock.register_uri("GET", FacebookSession.GRAPH + f"/{FacebookAdsApi.API_VERSION}/act_123/", json={"account": 123})
+    requests_mock.register_uri(
+        "GET",
+        FacebookSession.GRAPH + f"/{FacebookAdsApi.API_VERSION}/me/business_users",
+        json={"data": []},
+    )
+    requests_mock.register_uri(
+        "GET",
+        FacebookSession.GRAPH + f"/{FacebookAdsApi.API_VERSION}/act_123/",
+        json={"account": 123},
+    )
     return config
 
 
@@ -143,21 +157,35 @@ class TestSourceFacebookMarketing:
 
     def test_get_custom_insights_streams(self, api, config, fb_marketing):
         config["custom_insights"] = [
-            {"name": "test", "fields": ["account_id"], "breakdowns": ["ad_format_asset"], "action_breakdowns": ["action_device"]},
+            {
+                "name": "test",
+                "fields": ["account_id"],
+                "breakdowns": ["ad_format_asset"],
+                "action_breakdowns": ["action_device"],
+            },
         ]
         config = ConnectorConfig.parse_obj(config)
         assert fb_marketing.get_custom_insights_streams(api, config)
 
     def test_get_custom_insights_action_breakdowns_allow_empty(self, api, config, fb_marketing):
         config["custom_insights"] = [
-            {"name": "test", "fields": ["account_id"], "breakdowns": ["ad_format_asset"], "action_breakdowns": []},
+            {
+                "name": "test",
+                "fields": ["account_id"],
+                "breakdowns": ["ad_format_asset"],
+                "action_breakdowns": [],
+            },
         ]
 
         config["action_breakdowns_allow_empty"] = False
         streams = fb_marketing.get_custom_insights_streams(api, ConnectorConfig.parse_obj(config))
         assert len(streams) == 1
         assert streams[0].breakdowns == ["ad_format_asset"]
-        assert streams[0].action_breakdowns == ["action_type", "action_target_id", "action_destination"]
+        assert streams[0].action_breakdowns == [
+            "action_type",
+            "action_target_id",
+            "action_destination",
+        ]
 
         config["action_breakdowns_allow_empty"] = True
         streams = fb_marketing.get_custom_insights_streams(api, ConnectorConfig.parse_obj(config))
@@ -180,10 +208,8 @@ class TestSourceFacebookMarketing:
             ]
         )
 
-        try:
+        with pytest.raises(AirbyteTracedException):
             list(fb_marketing.read(logger_mock, config=config, catalog=catalog))
-        except KeyError as error:
-            pytest.fail(str(error))
 
 
 def test_check_config(config_gen, requests_mock, fb_marketing):

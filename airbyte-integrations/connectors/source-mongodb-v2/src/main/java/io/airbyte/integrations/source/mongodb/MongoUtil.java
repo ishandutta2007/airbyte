@@ -18,7 +18,6 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 import com.mongodb.client.model.Aggregates;
 import com.mongodb.client.model.Projections;
 import io.airbyte.commons.exceptions.ConfigErrorException;
@@ -38,7 +37,6 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import org.bson.Document;
 import org.bson.conversions.Bson;
 import org.slf4j.Logger;
@@ -53,6 +51,11 @@ public class MongoUtil {
    * avoid access issues.
    */
   private static final Set<String> IGNORED_COLLECTIONS = Set.of("system.", "replset.", "oplog.");
+
+  @VisibleForTesting
+  static final int DEFAULT_CHUNK_SIZE = 1_000_000;
+  @VisibleForTesting
+  static final long QUERY_TARGET_SIZE_GB = 1_073_741_824;
 
   /**
    * The minimum size of the Debezium event queue. This value will be selected if the provided
@@ -70,20 +73,6 @@ public class MongoUtil {
 
   static final Set<String> SCHEMALESS_FIELDS =
       Set.of(CDC_UPDATED_AT, CDC_DELETED_AT, DEFAULT_CURSOR_FIELD, DEFAULT_PRIMARY_KEY, SCHEMALESS_MODE_DATA_FIELD);
-
-  /**
-   * Tests whether the database exists in target MongoDB instance.
-   *
-   * @param mongoClient The {@link MongoClient} used to query the MongoDB server for the database
-   *        names.
-   * @param databaseName The database name from the source's configuration.
-   * @return {@code true} if the database exists, {@code false} otherwise.
-   */
-  public static boolean checkDatabaseExists(final MongoClient mongoClient, final String databaseName) {
-    final MongoIterable<String> databaseNames = mongoClient.listDatabaseNames();
-    return StreamSupport.stream(databaseNames.spliterator(), false)
-        .anyMatch(name -> name.equalsIgnoreCase(databaseName));
-  }
 
   /**
    * Returns the set of collections that the current credentials are authorized to access.
@@ -135,6 +124,7 @@ public class MongoUtil {
         .map(collectionName -> discoverFields(collectionName, mongoClient, databaseName, sampleSize, isSchemaEnforced))
         .filter(Optional::isPresent)
         .map(Optional::get)
+        .map(stream -> stream.withIsResumable(true))
         .collect(Collectors.toList());
   }
 
@@ -174,10 +164,9 @@ public class MongoUtil {
    * @return The {@link CollectionStatistics} of the collection or an empty {@link Optional} if the
    *         statistics cannot be retrieved.
    */
-  public static Optional<CollectionStatistics> getCollectionStatistics(final MongoClient mongoClient, final ConfiguredAirbyteStream stream) {
+  public static Optional<CollectionStatistics> getCollectionStatistics(final MongoDatabase mongoDatabase, final ConfiguredAirbyteStream stream) {
     try {
       final Map<String, Object> collStats = Map.of(MongoConstants.STORAGE_STATS_KEY, Map.of(), MongoConstants.COUNT_KEY, Map.of());
-      final MongoDatabase mongoDatabase = mongoClient.getDatabase(stream.getStream().getNamespace());
       final MongoCollection<Document> collection = mongoDatabase.getCollection(stream.getStream().getName());
       final AggregateIterable<Document> output = collection.aggregate(List.of(new Document("$collStats", collStats)));
 
@@ -186,7 +175,8 @@ public class MongoUtil {
           final Document stats = cursor.next();
           @SuppressWarnings("unchecked")
           final Map<String, Object> storageStats = (Map<String, Object>) stats.get(MongoConstants.STORAGE_STATS_KEY);
-          if (storageStats != null && !storageStats.isEmpty()) {
+          if (storageStats != null && !storageStats.isEmpty() && storageStats.containsKey(MongoConstants.COLLECTION_STATISTICS_COUNT_KEY)
+              && storageStats.containsKey(MongoConstants.COLLECTION_STATISTICS_STORAGE_SIZE_KEY)) {
             return Optional.of(new CollectionStatistics((Number) storageStats.get(MongoConstants.COLLECTION_STATISTICS_COUNT_KEY),
                 (Number) storageStats.get(MongoConstants.COLLECTION_STATISTICS_STORAGE_SIZE_KEY)));
           } else {
@@ -203,6 +193,40 @@ public class MongoUtil {
     }
 
     return Optional.empty();
+  }
+
+  public static int getChunkSizeForCollection(final Optional<CollectionStatistics> collectionStatistics, final ConfiguredAirbyteStream stream) {
+    // If table size info could not be calculated, a default chunk size will be provided.
+    if (collectionStatistics.isEmpty() || shouldUseDefaultChunkSize(collectionStatistics.get())) {
+      LOGGER.info("Chunk size could not be determined for: {}.{}, defaulting to {} rows", stream.getStream().getNamespace(),
+          stream.getStream().getName(), DEFAULT_CHUNK_SIZE);
+      return DEFAULT_CHUNK_SIZE;
+    }
+    CollectionStatistics stats = collectionStatistics.get();
+    final long totalRows = stats.count().longValue();
+    final long totalBytes = stats.size().longValue();
+    final long bytesPerRow = totalBytes / totalRows;
+    if (bytesPerRow == 0) {
+      LOGGER.info("Chunk size could not be determined for: {}.{}, defaulting to {} rows", stream.getStream().getNamespace(),
+          stream.getStream().getName(), DEFAULT_CHUNK_SIZE);
+      return DEFAULT_CHUNK_SIZE;
+    }
+    // Otherwise the chunk size is essentially the limit - the number of rows to fetch per query. This
+    // number is the number of rows that would
+    // correspond to roughly ~1GB of data.
+    final int chunkSize = (int) (QUERY_TARGET_SIZE_GB / bytesPerRow);
+    if (chunkSize <= 0) {
+      LOGGER.info("Chunk size could not be determined for: {}.{}, defaulting to {} rows", stream.getStream().getNamespace(),
+          stream.getStream().getName(), DEFAULT_CHUNK_SIZE);
+      return DEFAULT_CHUNK_SIZE;
+    }
+    LOGGER.info("Chunk size determined for: {}.{}, to be {} rows", stream.getStream().getNamespace(),
+        stream.getStream().getName(), chunkSize);
+    return chunkSize;
+  }
+
+  private static boolean shouldUseDefaultChunkSize(CollectionStatistics stats) {
+    return stats.size().longValue() == 0 || stats.count().longValue() == 0;
   }
 
   /**

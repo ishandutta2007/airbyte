@@ -9,8 +9,10 @@ import static io.airbyte.cdk.integrations.debezium.internals.DebeziumEventConver
 import static io.airbyte.integrations.source.mongodb.MongoCatalogHelper.AIRBYTE_STREAM_PROPERTIES;
 import static io.airbyte.integrations.source.mongodb.MongoConstants.DATABASE_CONFIG_CONFIGURATION_KEY;
 import static io.airbyte.integrations.source.mongodb.MongoConstants.DEFAULT_DISCOVER_SAMPLE_SIZE;
+import static io.airbyte.integrations.source.mongodb.MongoUtil.DEFAULT_CHUNK_SIZE;
 import static io.airbyte.integrations.source.mongodb.MongoUtil.MAX_QUEUE_SIZE;
 import static io.airbyte.integrations.source.mongodb.MongoUtil.MIN_QUEUE_SIZE;
+import static io.airbyte.integrations.source.mongodb.MongoUtil.QUERY_TARGET_SIZE_GB;
 import static io.airbyte.integrations.source.mongodb.MongoUtil.checkSchemaModeMismatch;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.catchThrowable;
@@ -35,10 +37,10 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoIterable;
 import io.airbyte.commons.exceptions.ConfigErrorException;
 import io.airbyte.commons.json.Jsons;
 import io.airbyte.commons.resources.MoreResources;
+import io.airbyte.integrations.source.mongodb.MongoUtil.CollectionStatistics;
 import io.airbyte.integrations.source.mongodb.cdc.MongoDbCdcConnectorMetadataInjector;
 import io.airbyte.protocol.models.JsonSchemaType;
 import io.airbyte.protocol.models.v0.AirbyteStream;
@@ -57,20 +59,6 @@ import org.junit.jupiter.api.Test;
 public class MongoUtilTest {
 
   private static final String JSON_TYPE_PROPERTY_NAME = "type";
-
-  @Test
-  void testCheckDatabaseExists() {
-    final String databaseName = "test";
-    final List<String> databaseNames = List.of("test", "test1", "test2");
-    final MongoIterable<String> iterable = mock(MongoIterable.class);
-    final MongoClient mongoClient = mock(MongoClient.class);
-
-    when(iterable.spliterator()).thenReturn(databaseNames.spliterator());
-    when(mongoClient.listDatabaseNames()).thenReturn(iterable);
-
-    assertTrue(MongoUtil.checkDatabaseExists(mongoClient, databaseName));
-    assertFalse(MongoUtil.checkDatabaseExists(mongoClient, "other"));
-  }
 
   @Test
   void testGetAirbyteStreams() throws IOException {
@@ -349,7 +337,7 @@ public class MongoUtilTest {
     when(mongoClient.getDatabase(databaseName)).thenReturn(mongoDatabase);
     when(aggregateIterable.allowDiskUse(anyBoolean())).thenReturn(aggregateIterable);
 
-    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoClient, configuredAirbyteStream);
+    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoDatabase, configuredAirbyteStream);
 
     assertTrue(statistics.isPresent());
     assertEquals(746, statistics.get().count());
@@ -375,7 +363,7 @@ public class MongoUtilTest {
     when(mongoDatabase.getCollection(collectionName)).thenReturn(mongoCollection);
     when(mongoClient.getDatabase(databaseName)).thenReturn(mongoDatabase);
 
-    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoClient, configuredAirbyteStream);
+    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoDatabase, configuredAirbyteStream);
 
     assertFalse(statistics.isPresent());
   }
@@ -401,7 +389,7 @@ public class MongoUtilTest {
     when(mongoDatabase.getCollection(collectionName)).thenReturn(mongoCollection);
     when(mongoClient.getDatabase(databaseName)).thenReturn(mongoDatabase);
 
-    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoClient, configuredAirbyteStream);
+    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoDatabase, configuredAirbyteStream);
 
     assertFalse(statistics.isPresent());
   }
@@ -410,17 +398,40 @@ public class MongoUtilTest {
   void testGetCollectionStatisticsException() {
     final String collectionName = "test-collection";
     final String databaseName = "test-database";
-    final MongoClient mongoClient = mock(MongoClient.class);
+    final MongoDatabase mongoDatabase = mock(MongoDatabase.class);
 
     final AirbyteStream stream = new AirbyteStream().withName(collectionName).withNamespace(databaseName);
     final ConfiguredAirbyteStream configuredAirbyteStream = new ConfiguredAirbyteStream().withStream(stream);
 
-    when(mongoClient.getDatabase(databaseName)).thenThrow(new IllegalArgumentException("test"));
+    when(mongoDatabase.getCollection(collectionName)).thenThrow(new IllegalArgumentException("test"));
 
-    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoClient, configuredAirbyteStream);
+    final Optional<MongoUtil.CollectionStatistics> statistics = MongoUtil.getCollectionStatistics(mongoDatabase, configuredAirbyteStream);
 
     assertFalse(statistics.isPresent());
 
+  }
+
+  @Test
+  void testChunkSize() {
+    final String collectionName = "test-collection";
+    final String databaseName = "test-database";
+    final AirbyteStream stream = new AirbyteStream().withName(collectionName).withNamespace(databaseName);
+    final ConfiguredAirbyteStream configuredAirbyteStream = new ConfiguredAirbyteStream().withStream(stream);
+
+    // Assert that the default chunk size is returned
+    assertThat(MongoUtil.getChunkSizeForCollection(Optional.empty(), configuredAirbyteStream)).isEqualTo(1_000_000);
+    assertThat(MongoUtil.getChunkSizeForCollection(Optional.of(new CollectionStatistics(0, 0)), configuredAirbyteStream))
+        .isEqualTo(DEFAULT_CHUNK_SIZE);
+    assertThat(MongoUtil.getChunkSizeForCollection(Optional.of(new CollectionStatistics(0, 1000)), configuredAirbyteStream))
+        .isEqualTo(DEFAULT_CHUNK_SIZE);
+    assertThat(MongoUtil.getChunkSizeForCollection(Optional.of(new CollectionStatistics(1000, 0)), configuredAirbyteStream))
+        .isEqualTo(DEFAULT_CHUNK_SIZE);
+    assertThat(MongoUtil.getChunkSizeForCollection(Optional.of(new CollectionStatistics(1000, 999)), configuredAirbyteStream))
+        .isEqualTo(DEFAULT_CHUNK_SIZE);
+
+    assertThat(
+        MongoUtil.getChunkSizeForCollection(Optional.of(new CollectionStatistics(1_000_000, 10 * QUERY_TARGET_SIZE_GB)), configuredAirbyteStream))
+            .isEqualTo(100_003);
   }
 
   private static String formatMismatchException(final boolean isConfigSchemaEnforced,

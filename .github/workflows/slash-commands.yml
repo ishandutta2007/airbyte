@@ -6,7 +6,7 @@ jobs:
   slashCommandDispatch:
     # Only allow slash commands on pull request (not on issues)
     if: ${{ github.event.issue.pull_request }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Get PR repo and ref
         id: getref
@@ -22,17 +22,18 @@ jobs:
           token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
           permission: write
           commands: |
+            bump-version
+            format-fix
             test
-            legacy-test
             test-performance
-            publish
             publish-java-cdk
-            legacy-publish
             connector-performance
+            approve-regression-tests
           static-args: |
             repo=${{ steps.getref.outputs.repo }}
             gitref=${{ steps.getref.outputs.ref }}
             comment-id=${{ github.event.comment.id }}
+            pr=${{ github.event.issue.number }}
           dispatch-type: workflow
 
       - name: Edit comment with error message

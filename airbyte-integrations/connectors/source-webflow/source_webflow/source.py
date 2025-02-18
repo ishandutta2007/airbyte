@@ -8,12 +8,14 @@ from abc import ABC
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Tuple
 
 import requests
+
 from airbyte_cdk.sources import AbstractSource
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.http import HttpStream
 
 from .auth import WebflowTokenAuthenticator
 from .webflow_to_airbyte_mapping import WebflowToAirbyteMapping
+
 
 """
 This module is used for pulling the contents of "collections" out of Webflow, which is a CMS for hosting websites.
@@ -201,7 +203,6 @@ class CollectionContents(WebflowStream):
         stream_slice: Mapping[str, Any] = None,
         next_page_token: Mapping[str, Any] = None,
     ) -> MutableMapping[str, Any]:
-
         # Webflow default pagination is 100, for debugging pagination we set this to a low value.
         # This should be set back to 100 for production
         params = {"limit": 100}
@@ -229,7 +230,7 @@ class CollectionContents(WebflowStream):
         """
 
         collection_id = self.collection_id
-        schema_stream = CollectionSchema(authenticator=self.authenticator, collection_id=collection_id)
+        schema_stream = CollectionSchema(authenticator=self._session.auth, collection_id=collection_id)
         schema_records = schema_stream.read_records(sync_mode="full_refresh")
 
         # each record corresponds to a property in the json schema. So we loop over each of these properties
@@ -256,7 +257,6 @@ class CollectionContents(WebflowStream):
 
 
 class SourceWebflow(AbstractSource):
-
     """This is the main class that defines the methods that will be called by Airbyte infrastructure"""
 
     @staticmethod

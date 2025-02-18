@@ -7,12 +7,13 @@ from abc import ABC, abstractmethod
 from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Union
 from urllib.error import URLError
 
-from airbyte_cdk.models import SyncMode
-from airbyte_cdk.sources.streams import Stream
 from bingads.service_client import ServiceClient
 from bingads.v13.reporting.reporting_service_manager import ReportingServiceManager
-from source_bing_ads.client import Client
 from suds import sudsobject
+
+from airbyte_cdk.models import SyncMode
+from airbyte_cdk.sources.streams import Stream
+from source_bing_ads.client import Client
 
 
 class BingAdsBaseStream(Stream, ABC):
@@ -206,13 +207,21 @@ class Accounts(BingAdsStream):
             "ReturnAdditionalFields": self.additional_fields,
         }
 
+    def _transform_tax_fields(self, record: Mapping[str, Any]) -> Mapping[str, Any]:
+        tax_certificates = record["TaxCertificate"].get("TaxCertificates", {}) if record.get("TaxCertificate") is not None else {}
+        if tax_certificates and not isinstance(tax_certificates, list):
+            tax_certificate_pairs = tax_certificates.get("KeyValuePairOfstringbase64Binary")
+            if tax_certificate_pairs:
+                record["TaxCertificate"]["TaxCertificates"] = tax_certificate_pairs
+        return record
+
     def parse_response(self, response: sudsobject.Object, **kwargs) -> Iterable[Mapping]:
         if response is not None and hasattr(response, self.data_field):
             records = self.client.asdict(response)[self.data_field]
             for record in records:
                 if record["Id"] not in self._unique_account_ids:
                     self._unique_account_ids.add(record["Id"])
-                    yield record
+                    yield self._transform_tax_fields(record)
 
 
 class Campaigns(BingAdsCampaignManagementStream):
@@ -240,7 +249,7 @@ class Campaigns(BingAdsCampaignManagementStream):
         "TargetSetting",
         "VerifiedTrackingSetting",
     ]
-    campaign_types: Iterable[str] = ["Audience", "DynamicSearchAds", "Search", "Shopping"]
+    campaign_types: Iterable[str] = ["Audience", "DynamicSearchAds", "Search", "Shopping", "PerformanceMax"]
 
     parent_key_to_foreign_key_map = {
         "AccountId": "account_id",

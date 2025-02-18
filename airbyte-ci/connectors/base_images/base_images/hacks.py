@@ -4,6 +4,7 @@
 
 import dagger
 
+
 # If we perform addition dagger operations on the container, we need to make sure that a mapping exists for the new field name.
 DAGGER_FIELD_NAME_TO_DOCKERFILE_INSTRUCTION = {
     "from": lambda field: f'FROM {field.args.get("address")}',
@@ -20,9 +21,10 @@ def get_container_dockerfile(container) -> str:
     Returns:
         str: The Dockerfile of the base image container.
     """
-
     lineage = [
-        field for field in list(container._ctx.selections) if isinstance(field, dagger.api.base.Field) and field.type_name == "Container"
+        field
+        for field in list(container._ctx.selections)
+        if isinstance(field, dagger.client._core.Field) and field.type_name == "Container"
     ]
     dockerfile = []
 

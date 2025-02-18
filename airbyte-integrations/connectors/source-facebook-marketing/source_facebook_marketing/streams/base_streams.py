@@ -5,24 +5,27 @@
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
+from functools import cache
 from typing import TYPE_CHECKING, Any, Iterable, List, Mapping, MutableMapping, Optional
 
 import pendulum
+from facebook_business.adobjects.abstractobject import AbstractObject
+from facebook_business.exceptions import FacebookRequestError
+
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources.streams import Stream
 from airbyte_cdk.sources.streams.availability_strategy import AvailabilityStrategy
 from airbyte_cdk.sources.utils.transform import TransformConfig, TypeTransformer
-from facebook_business.adobjects.abstractobject import AbstractObject
-from facebook_business.exceptions import FacebookRequestError
 from source_facebook_marketing.streams.common import traced_exception
 
 from .common import deep_merge
 
+
 if TYPE_CHECKING:  # pragma: no cover
     from source_facebook_marketing.api import API
 
-
 logger = logging.getLogger("airbyte")
+from airbyte_cdk.sources.streams import CheckpointMixin
 
 
 class FBMarketingStream(Stream, ABC):
@@ -31,9 +34,9 @@ class FBMarketingStream(Stream, ABC):
     primary_key = "id"
     transformer: TypeTransformer = TypeTransformer(TransformConfig.DefaultSchemaNormalization)
 
-    # this flag will override `include_deleted` option for streams that does not support it
-    enable_deleted = True
-    # entity prefix for `include_deleted` filter, it usually matches singular version of stream name
+    valid_statuses = []
+    status_field = ""
+    # entity prefix for statuses filter, it usually matches singular version of stream name
     entity_prefix = None
     # In case of Error 'Too much data was requested in batch' some fields should be removed from request
     fields_exceptions = []
@@ -42,19 +45,35 @@ class FBMarketingStream(Stream, ABC):
     def availability_strategy(self) -> Optional["AvailabilityStrategy"]:
         return None
 
-    def __init__(self, api: "API", account_ids: List[str], include_deleted: bool = False, page_size: int = 100, **kwargs):
+    def __init__(
+        self,
+        api: "API",
+        account_ids: List[str],
+        filter_statuses: list = [],
+        page_size: int = 100,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self._api = api
         self._account_ids = account_ids
         self.page_size = page_size if page_size is not None else 100
-        self._include_deleted = include_deleted if self.enable_deleted else False
+        self._filter_statuses = filter_statuses
         self._fields = None
+        self._saved_fields = None
 
+    @cache
     def fields(self, **kwargs) -> List[str]:
-        """List of fields that we want to query, for now just all properties from stream's schema"""
+        """
+        List of fields that we want to query, if no json_schema from configured catalog then will get all properties from stream's schema
+        """
         if self._fields:
             return self._fields
-        self._saved_fields = list(self.get_json_schema().get("properties", {}).keys())
+        json_schema = (
+            self.configured_json_schema
+            if self.configured_json_schema and self.configured_json_schema.get("properties")
+            else self.get_json_schema()
+        )
+        self._saved_fields = list(json_schema.get("properties", {}).keys())
         return self._saved_fields
 
     @classmethod
@@ -110,7 +129,7 @@ class FBMarketingStream(Stream, ABC):
         else:
             return {}
 
-    def _transform_state_from_old_format(self, state: Mapping[str, Any], move_fields: List[str] = None) -> Mapping[str, Any]:
+    def _transform_state_from_one_account_format(self, state: Mapping[str, Any], move_fields: List[str] = None) -> Mapping[str, Any]:
         """
         Transforms the state from an old format to a new format based on account IDs.
 
@@ -145,6 +164,19 @@ class FBMarketingStream(Stream, ABC):
         # If the state is empty or there are multiple account IDs, return an empty dictionary.
         return {}
 
+    def _transform_state_from_old_deleted_format(self, state: Mapping[str, Any]):
+        # transform from the old format with `include_deleted`
+        for account_id in self._account_ids:
+            account_state = state.get(account_id, {})
+            # check if the state for this account id is in the old format
+            if "filter_statuses" not in account_state and "include_deleted" in account_state:
+                if account_state["include_deleted"]:
+                    account_state["filter_statuses"] = self.valid_statuses
+                else:
+                    account_state["filter_statuses"] = []
+                state[account_id] = account_state
+        return state
+
     def read_records(
         self,
         sync_mode: SyncMode,
@@ -157,7 +189,10 @@ class FBMarketingStream(Stream, ABC):
         account_state = stream_slice.get("stream_state", {})
 
         try:
-            for record in self.list_objects(params=self.request_params(stream_state=account_state), account_id=account_id):
+            for record in self.list_objects(
+                params=self.request_params(stream_state=account_state),
+                account_id=account_id,
+            ):
                 if isinstance(record, AbstractObject):
                     record = record.export_all_data()  # convert FB object to dict
                 self.fix_date_time(record)
@@ -167,6 +202,10 @@ class FBMarketingStream(Stream, ABC):
             raise traced_exception(exc)
 
     def stream_slices(self, stream_state: Mapping[str, Any] = None, **kwargs) -> Iterable[Optional[Mapping[str, any]]]:
+        if stream_state:
+            stream_state = self._transform_state_from_one_account_format(stream_state, ["include_deleted"])
+            stream_state = self._transform_state_from_old_deleted_format(stream_state)
+
         for account_id in self._account_ids:
             account_state = self.get_account_state(account_id, stream_state)
             yield {"account_id": account_id, "stream_state": account_state}
@@ -182,39 +221,29 @@ class FBMarketingStream(Stream, ABC):
     def request_params(self, **kwargs) -> MutableMapping[str, Any]:
         """Parameters that should be passed to query_records method"""
         params = {"limit": self.page_size}
-
-        if self._include_deleted:
-            params.update(self._filter_all_statuses())
+        params.update(self._filter_all_statuses())
 
         return params
 
     def _filter_all_statuses(self) -> MutableMapping[str, Any]:
-        """Filter that covers all possible statuses thus including deleted/archived records"""
-        filt_values = [
-            "active",
-            "archived",
-            "completed",
-            "limited",
-            "not_delivering",
-            "deleted",
-            "not_published",
-            "pending_review",
-            "permanently_deleted",
-            "recently_completed",
-            "recently_rejected",
-            "rejected",
-            "scheduled",
-            "inactive",
-        ]
+        """Filter records by statuses"""
 
-        return {
-            "filtering": [
-                {"field": f"{self.entity_prefix}.delivery_info", "operator": "IN", "value": filt_values},
-            ],
-        }
+        return (
+            {
+                "filtering": [
+                    {
+                        "field": f"{self.entity_prefix}.{self.status_field}",
+                        "operator": "IN",
+                        "value": self._filter_statuses,
+                    },
+                ],
+            }
+            if self._filter_statuses and self.status_field
+            else {}
+        )
 
 
-class FBMarketingIncrementalStream(FBMarketingStream, ABC):
+class FBMarketingIncrementalStream(FBMarketingStream, CheckpointMixin, ABC):
     """Base class for incremental streams"""
 
     cursor_field = "updated_time"
@@ -223,14 +252,30 @@ class FBMarketingIncrementalStream(FBMarketingStream, ABC):
         super().__init__(**kwargs)
         self._start_date = pendulum.instance(start_date) if start_date else None
         self._end_date = pendulum.instance(end_date) if end_date else None
+        self._state = {}
 
-    def get_updated_state(self, current_stream_state: MutableMapping[str, Any], latest_record: Mapping[str, Any]):
+    @property
+    def state(self):
+        return self._state
+
+    @state.setter
+    def state(self, value: Mapping[str, Any]):
+        self._state.update(**value)
+
+    def _get_updated_state(
+        self,
+        current_stream_state: MutableMapping[str, Any],
+        latest_record: Mapping[str, Any],
+    ):
         """Update stream state from latest record"""
         account_id = latest_record["account_id"]
-        state_for_accounts = self._transform_state_from_old_format(current_stream_state, ["include_deleted"])
+        state_for_accounts = self._transform_state_from_one_account_format(current_stream_state, ["include_deleted"])
+        state_for_accounts = self._transform_state_from_old_deleted_format(state_for_accounts)
         account_state = self.get_account_state(account_id, state_for_accounts)
 
-        potentially_new_records_in_the_past = self._include_deleted and not account_state.get("include_deleted", False)
+        potentially_new_records_in_the_past = self._filter_statuses and (
+            set(self._filter_statuses) - set(account_state.get("filter_statuses", []))
+        )
         record_value = latest_record[self.cursor_field]
         state_value = account_state.get(self.cursor_field) or record_value
         max_cursor = max(pendulum.parse(state_value), pendulum.parse(record_value))
@@ -238,8 +283,8 @@ class FBMarketingIncrementalStream(FBMarketingStream, ABC):
             max_cursor = record_value
 
         state_for_accounts.setdefault(account_id, {})[self.cursor_field] = str(max_cursor)
+        state_for_accounts[account_id]["filter_statuses"] = self._filter_statuses
 
-        state_for_accounts["include_deleted"] = self._include_deleted
         return state_for_accounts
 
     def request_params(self, stream_state: Mapping[str, Any], **kwargs) -> MutableMapping[str, Any]:
@@ -252,7 +297,7 @@ class FBMarketingIncrementalStream(FBMarketingStream, ABC):
         """Additional filters associated with state if any set"""
 
         state_value = stream_state.get(self.cursor_field)
-        if stream_state:
+        if stream_state and state_value:
             filter_value = pendulum.parse(state_value)
         elif self._start_date:
             filter_value = self._start_date
@@ -260,9 +305,10 @@ class FBMarketingIncrementalStream(FBMarketingStream, ABC):
             # if start_date is not specified then do not use date filters
             return {}
 
-        potentially_new_records_in_the_past = self._include_deleted and not stream_state.get("include_deleted", False)
+        potentially_new_records_in_the_past = set(self._filter_statuses) - set(stream_state.get("filter_statuses", []))
+
         if potentially_new_records_in_the_past:
-            self.logger.info(f"Ignoring bookmark for {self.name} because of enabled `include_deleted` option")
+            self.logger.info(f"Ignoring bookmark for {self.name} because `filter_statuses` were changed.")
             if self._start_date:
                 filter_value = self._start_date
             else:
@@ -279,11 +325,20 @@ class FBMarketingIncrementalStream(FBMarketingStream, ABC):
             ],
         }
 
+    def read_records(
+        self,
+        sync_mode: SyncMode,
+        cursor_field: List[str] = None,
+        stream_slice: Mapping[str, Any] = None,
+        stream_state: Mapping[str, Any] = None,
+    ) -> Iterable[Mapping[str, Any]]:
+        for record in super().read_records(sync_mode, cursor_field, stream_slice, stream_state):
+            self.state = self._get_updated_state(self.state, record)
+            yield record
+
 
 class FBMarketingReversedIncrementalStream(FBMarketingIncrementalStream, ABC):
     """The base class for streams that don't support filtering and return records sorted desc by cursor_value"""
-
-    enable_deleted = False  # API don't have any filtering, so implement include_deleted in code
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -294,7 +349,7 @@ class FBMarketingReversedIncrementalStream(FBMarketingIncrementalStream, ABC):
         """State getter, get current state and serialize it to emmit Airbyte STATE message"""
         if self._cursor_values:
             result_state = {account_id: {self.cursor_field: cursor_value} for account_id, cursor_value in self._cursor_values.items()}
-            result_state["include_deleted"] = self._include_deleted
+            result_state["filter_statuses"] = self._filter_statuses
             return result_state
 
         return {}
@@ -302,23 +357,22 @@ class FBMarketingReversedIncrementalStream(FBMarketingIncrementalStream, ABC):
     @state.setter
     def state(self, value: Mapping[str, Any]):
         """State setter, ignore state if current settings mismatch saved state"""
-        transformed_state = self._transform_state_from_old_format(value, ["include_deleted"])
-        if self._include_deleted and not transformed_state.get("include_deleted"):
-            logger.info(f"Ignoring bookmark for {self.name} because of enabled `include_deleted` option")
+        transformed_state = self._transform_state_from_one_account_format(value, ["include_deleted"])
+        transformed_state = self._transform_state_from_old_deleted_format(transformed_state)
+
+        if set(self._filter_statuses) - set(transformed_state.get("filter_statuses", [])):
+            logger.info(f"Ignoring bookmark for {self.name} because of enabled `filter_statuses` option")
             return
 
         self._cursor_values = {}
         for account_id in self._account_ids:
             cursor_value = transformed_state.get(account_id, {}).get(self.cursor_field)
             if cursor_value is not None:
-                self._cursor_values[account_id] = pendulum.parse(cursor_value)
+                self._cursor_values[account_id] = cursor_value
 
     def _state_filter(self, stream_state: Mapping[str, Any]) -> Mapping[str, Any]:
         """Don't have classic cursor filtering"""
         return {}
-
-    def get_record_deleted_status(self, record) -> bool:
-        return False
 
     def read_records(
         self,
@@ -337,16 +391,17 @@ class FBMarketingReversedIncrementalStream(FBMarketingIncrementalStream, ABC):
         account_state = stream_slice.get("stream_state")
 
         try:
-            records_iter = self.list_objects(params=self.request_params(stream_state=account_state), account_id=account_id)
+            records_iter = self.list_objects(
+                params=self.request_params(stream_state=account_state),
+                account_id=account_id,
+            )
             account_cursor = self._cursor_values.get(account_id)
 
             max_cursor_value = None
             for record in records_iter:
-                record_cursor_value = pendulum.parse(record[self.cursor_field])
+                record_cursor_value = record[self.cursor_field]
                 if account_cursor and record_cursor_value < account_cursor:
                     break
-                if not self._include_deleted and self.get_record_deleted_status(record):
-                    continue
 
                 max_cursor_value = max(max_cursor_value, record_cursor_value) if max_cursor_value else record_cursor_value
                 record = record.export_all_data()

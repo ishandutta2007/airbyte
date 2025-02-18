@@ -7,13 +7,26 @@ from abc import ABC
 from typing import TYPE_CHECKING
 
 import docker  # type: ignore
+from base_images.bases import AirbyteConnectorBaseImage  # type: ignore
+from click import UsageError
+from connector_ops.utils import Connector  # type: ignore
 from dagger import Container, ExecError, Platform, QueryError
+
 from pipelines.airbyte_ci.connectors.context import ConnectorContext
-from pipelines.helpers.utils import export_container_to_tarball
+from pipelines.helpers.utils import export_container_to_tarball, sh_dash_c
 from pipelines.models.steps import Step, StepResult, StepStatus
 
 if TYPE_CHECKING:
-    from typing import Any
+    from typing import Any, Type, TypeVar
+
+    T = TypeVar("T", bound="BuildConnectorImagesBase")
+
+
+def apply_airbyte_docker_labels(connector_container: Container, connector: Connector) -> Container:
+    return connector_container.with_label("io.airbyte.version", connector.metadata["dockerImageTag"]).with_label(
+        "io.airbyte.name", connector.metadata["dockerRepository"]
+    )
+
 
 class BuildConnectorImagesBase(Step, ABC):
     """
@@ -21,6 +34,7 @@ class BuildConnectorImagesBase(Step, ABC):
     """
 
     context: ConnectorContext
+    USER = AirbyteConnectorBaseImage.USER
 
     @property
     def title(self) -> str:
@@ -34,21 +48,28 @@ class BuildConnectorImagesBase(Step, ABC):
         build_results_per_platform = {}
         for platform in self.build_platforms:
             try:
-                connector = await self._build_connector(platform, *args)
+                connector_container = await self._build_connector(platform, *args)
+                connector_container = apply_airbyte_docker_labels(connector_container, self.context.connector)
                 try:
-                    await connector.with_exec(["spec"])
+                    await connector_container.with_exec(["spec"], use_entrypoint=True)
                 except ExecError as e:
                     return StepResult(
-                        step=self, status=StepStatus.FAILURE, stderr=str(e), stdout=f"Failed to run the spec command on the connector container for platform {platform}."
+                        step=self,
+                        status=StepStatus.FAILURE,
+                        stderr=str(e),
+                        stdout=f"Failed to run the spec command on the connector container for platform {platform}.",
+                        exc_info=e,
                     )
-                build_results_per_platform[platform] = connector
-            except QueryError as e:
-                return StepResult(step=self, status=StepStatus.FAILURE, stderr=f"Failed to build connector image for platform {platform}: {e}")
+                build_results_per_platform[platform] = connector_container
+            except (QueryError, UsageError) as e:
+                return StepResult(
+                    step=self, status=StepStatus.FAILURE, stderr=f"Failed to build connector image for platform {platform}: {e}"
+                )
         success_message = (
             f"The {self.context.connector.technical_name} docker image "
             f"was successfully built for platform(s) {', '.join(self.build_platforms)}"
         )
-        return StepResult(step=self, status=StepStatus.SUCCESS, stdout=success_message, output_artifact=build_results_per_platform)
+        return StepResult(step=self, status=StepStatus.SUCCESS, stdout=success_message, output=build_results_per_platform)
 
     async def _build_connector(self, platform: Platform, *args: Any, **kwargs: Any) -> Container:
         """Implement the generation of the image for the platform and return the corresponding container.
@@ -58,14 +79,28 @@ class BuildConnectorImagesBase(Step, ABC):
         """
         raise NotImplementedError("`BuildConnectorImagesBase`s must define a '_build_connector' attribute.")
 
+    @classmethod
+    async def get_image_user(cls: Type[T], base_container: Container) -> str:
+        """If the base image in use has a user named 'airbyte', we will use it as the user for the connector image.
+
+        Args:
+            base_container (Container): The base container to use to build the connector.
+
+        Returns:
+            str: The user to use for the connector image.
+        """
+        users = (await base_container.with_exec(sh_dash_c(["cut -d: -f1 /etc/passwd | sort | uniq"])).stdout()).splitlines()
+        if cls.USER in users:
+            return cls.USER
+        return "root"
+
 
 class LoadContainerToLocalDockerHost(Step):
     context: ConnectorContext
 
-    def __init__(self, context: ConnectorContext, containers: dict[Platform, Container], image_tag: str = "dev") -> None:
+    def __init__(self, context: ConnectorContext, image_tag: str = "dev") -> None:
         super().__init__(context)
         self.image_tag = image_tag
-        self.containers = containers
 
     def _generate_dev_tag(self, platform: Platform, multi_platforms: bool) -> str:
         """
@@ -82,10 +117,11 @@ class LoadContainerToLocalDockerHost(Step):
     def image_name(self) -> str:
         return f"airbyte/{self.context.connector.technical_name}"
 
-    async def _run(self) -> StepResult:
+    async def _run(self, containers: dict[Platform, Container]) -> StepResult:
         loaded_images = []
-        multi_platforms = len(self.containers) > 1
-        for platform, container in self.containers.items():
+        image_sha = None
+        multi_platforms = len(containers) > 1
+        for platform, container in containers.items():
             _, exported_tar_path = await export_container_to_tarball(self.context, container, platform)
             if not exported_tar_path:
                 return StepResult(
@@ -107,4 +143,6 @@ class LoadContainerToLocalDockerHost(Step):
                     step=self, status=StepStatus.FAILURE, stderr=f"Something went wrong while interacting with the local docker client: {e}"
                 )
 
-        return StepResult(step=self, status=StepStatus.SUCCESS, stdout=f"Loaded image {','.join(loaded_images)} to your Docker host ({image_sha}).")
+        return StepResult(
+            step=self, status=StepStatus.SUCCESS, stdout=f"Loaded image {','.join(loaded_images)} to your Docker host ({image_sha})."
+        )

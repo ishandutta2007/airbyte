@@ -5,19 +5,20 @@
 import copy
 from abc import ABC, abstractmethod
 from functools import cached_property
-from typing import Any, Iterable, List, Mapping, MutableMapping, Optional, Union
+from typing import Any, Iterable, List, Mapping, MutableMapping, Optional
 from urllib.parse import parse_qsl, urlparse
 
 import pendulum
 import requests
+from pendulum.datetime import DateTime
+from requests.auth import AuthBase
+
 from airbyte_cdk.models import SyncMode
 from airbyte_cdk.sources.streams import IncrementalMixin
 from airbyte_cdk.sources.streams.availability_strategy import AvailabilityStrategy
 from airbyte_cdk.sources.streams.http import HttpStream
-from airbyte_cdk.sources.streams.http.auth.core import HttpAuthenticator
 from airbyte_cdk.sources.utils.transform import TransformConfig, TypeTransformer
-from pendulum.datetime import DateTime
-from requests.auth import AuthBase
+
 
 TWILIO_CHAT_BASE = "https://chat.twilio.com/v2/"
 TWILIO_CONVERSATION_BASE = "https://conversations.twilio.com/v1/"
@@ -56,7 +57,7 @@ class TwilioStream(HttpStream, ABC):
 
     def next_page_token(self, response: requests.Response) -> Optional[Mapping[str, Any]]:
         stream_data = response.json()
-        next_page_uri = stream_data.get("next_page_uri")
+        next_page_uri = stream_data.get("meta", {}).get("next_page_url") or stream_data.get("next_page_uri")
         if next_page_uri:
             next_url = urlparse(next_page_uri)
             next_page_params = dict(parse_qsl(next_url.query))
@@ -124,7 +125,7 @@ class IncrementalTwilioStream(TwilioStream, IncrementalMixin):
 
     def __init__(
         self,
-        authenticator: Union[AuthBase, HttpAuthenticator],
+        authenticator: AuthBase,
         start_date: str = None,
         lookback_window: int = 0,
         slice_step_map: Mapping[str, int] = None,
@@ -262,7 +263,7 @@ class TwilioNestedStream(TwilioStream):
 
     @cached_property
     def parent_stream_instance(self):
-        return self.parent_stream(authenticator=self.authenticator)
+        return self.parent_stream(authenticator=self._session.auth)
 
     def parent_record_to_stream_slice(self, record: Mapping[str, Any]) -> Mapping[str, Any]:
         return {"subresource_uri": record["subresource_uris"][self.subresource_uri_key]}
@@ -552,7 +553,7 @@ class MessageMedia(IncrementalTwilioStream, TwilioNestedStream):
 
     @cached_property
     def parent_stream_instance(self):
-        return self.parent_stream(authenticator=self.authenticator, start_date=self._start_date, lookback_window=self._lookback_window)
+        return self.parent_stream(authenticator=self._session.auth, start_date=self._start_date, lookback_window=self._lookback_window)
 
 
 class UsageNestedStream(TwilioNestedStream):

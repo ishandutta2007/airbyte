@@ -8,12 +8,13 @@ import re
 from typing import Any, Dict, Union
 
 from jsonschema import RefResolver
-from pydantic import BaseModel, Field
+from pydantic.v1 import BaseModel, Field
 
 from .formats.avro_spec import AvroFormat
 from .formats.csv_spec import CsvFormat
 from .formats.jsonl_spec import JsonlFormat
 from .formats.parquet_spec import ParquetFormat
+
 
 # To implement your provider specific spec, inherit from SourceFilesAbstractSpec and add provider-specific settings e.g.:
 

@@ -63,13 +63,19 @@ On the following screen you'll need to configure all parameters for your Okta ap
     * Your **Okta domain** (it's not specific to this application, see [Find your Okta domain](https://developer.okta.com/docs/guides/find-your-domain/main/))
     * **Client ID**
     * **Client Secret**
+    * **Email Domain** (users signing in from this domain will be required to sign in via SSO)
+
+  :::warning
+  For security purposes, existing [Applications](https://reference.airbyte.com/reference/authentication) used to access the Airbyte API that were created before enabling SSO **will be disabled** once the user that owns the Application signs in via SSO for the first time. After enabling SSO, please make sure to replace any Application secrets that were previously in use.
+  :::
+
   </TabItem>
   <TabItem value="self-managed" label="Self Hosted">
     Create the application with the following parameters:
 
     <dl>
       <dt>**App integration name**</dt>
-      <dd>Please choose a URL-friendly app integraiton name without spaces or special characters, such as `my-airbyte-app`. Screenshot of Okta app integration name Spaces or special characters in this field could result in invalid redirect URIs.</dd>
+      <dd>Please choose a URL-friendly app integration name without spaces or special characters, such as `my-airbyte-app`. Screenshot of Okta app integration name Spaces or special characters in this field could result in invalid redirect URIs.</dd>
       <dt>**Logo** (optional)</dt>
       <dd>You can upload an Airbyte logo, which you can find at https://airbyte.com/company/press</dd>
       <dt>**Grant type**</dt>
@@ -104,5 +110,6 @@ On the following screen you'll need to configure all parameters for your Okta ap
     * Client Secret
 
     Visit the [implementation guide](/enterprise-setup/implementation-guide.md) for instructions on how to deploy Airbyte Enterprise using `kubernetes`, `kubectl` and `helm`.
+
   </TabItem>
 </Tabs>

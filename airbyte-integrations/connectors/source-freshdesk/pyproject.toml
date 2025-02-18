@@ -3,7 +3,7 @@ requires = [ "poetry-core>=1.0.0",]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-version = "3.0.7"
+version = "3.1.2"
 name = "source-freshdesk"
 description = "Source implementation for Freshdesk."
 authors = [ "Airbyte <contact@airbyte.io>",]
@@ -18,7 +18,7 @@ include = "source_freshdesk"
 [tool.poetry.dependencies]
 python = "^3.9,<3.12"
 backoff = "==1.10.0"
-airbyte-cdk = "==0.58.7"
+airbyte-cdk = "^0"
 
 [tool.poetry.scripts]
 source-freshdesk = "source_freshdesk.run:run"
@@ -27,3 +27,11 @@ source-freshdesk = "source_freshdesk.run:run"
 pytest = "^6.2"
 pytest-mock = "^3.6"
 requests-mock = "^1.11.0"
+
+
+[tool.poe]
+include = [
+    # Shared tasks definition file(s) can be imported here.
+    # Run `poe` or `poe --help` to see the list of available tasks.
+    "${POE_GIT_DIR}/poe-tasks/poetry-connector-tasks.toml",
+]

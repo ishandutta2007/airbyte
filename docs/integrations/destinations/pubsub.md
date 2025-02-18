@@ -89,10 +89,15 @@ You should now have all the requirements needed to configure PubSub as a destina
 
 Once you've configured PubSub as a destination, delete the Service Account Key from your computer.
 
-## CHANGELOG
+## Changelog
+
+<details>
+  <summary>Expand to review</summary>
 
 | Version | Date              | Pull Request                                             | Subject                                                    |
 | :------ | :---------------- | :------------------------------------------------------- | :--------------------------------------------------------- |
+| 0.2.2 | 2025-01-10 | [51481](https://github.com/airbytehq/airbyte/pull/51481) | Use a non root base image |
+| 0.2.1 | 2024-12-18 | [49878](https://github.com/airbytehq/airbyte/pull/49878) | Use a base image: airbyte/java-connector-base:1.0.0 |
 | 0.2.0   | August 16, 2022   | [15705](https://github.com/airbytehq/airbyte/pull/15705) | Add configuration for Batching and Ordering                |
 | 0.1.5   | 2022-06-17        | [13864](https://github.com/airbytehq/airbyte/pull/13864) | Updated stacktrace format for any trace message errors     |
 | 0.1.4   | February 21, 2022 | [\#9819](https://github.com/airbytehq/airbyte/pull/9819) | Upgrade version of google-cloud-pubsub                     |
@@ -100,3 +105,5 @@ Once you've configured PubSub as a destination, delete the Service Account Key f
 | 0.1.2   | December 29, 2021 | [\#9183](https://github.com/airbytehq/airbyte/pull/9183) | Update connector fields title/description                  |
 | 0.1.1   | August 13, 2021   | [\#4699](https://github.com/airbytehq/airbyte/pull/4699) | Added json config validator                                |
 | 0.1.0   | June 24, 2021     | [\#4339](https://github.com/airbytehq/airbyte/pull/4339) | Initial release                                            |
+
+</details>
