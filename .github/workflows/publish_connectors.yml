@@ -327,6 +327,7 @@ jobs:
       # See: https://github.com/airbytehq/airbyte-ops-mcp/issues/686
       - name: Check for release block
         id: check-release-block
+        if: needs.publish_options.outputs.with-semver-suffix == 'none'
         shell: bash
         run: |
           BLOCK_FILE="airbyte-integrations/connectors/${{ matrix.connector }}/block-release.yaml"
